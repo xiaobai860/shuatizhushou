@@ -69,7 +69,10 @@ fun StudyPlanScreen(navController: NavController) {
                                 color = MaterialTheme.colorScheme.error)
                             Spacer(Modifier.weight(1f))
                             TextButton(onClick = {
-                                invalidPlans.forEach { repo.deleteStudyPlan(it.id) }
+                                invalidPlans.forEach {
+                                    repo.deleteStudyPlan(it.id)
+                                    repo.clearPlanProgress(it.id)
+                                }
                                 reload()
                             }) {
                                 Text("一键清除", color = MaterialTheme.colorScheme.error)
@@ -134,6 +137,7 @@ fun StudyPlanScreen(navController: NavController) {
             confirmButton = {
                 TextButton(onClick = {
                     repo.deleteStudyPlan(plan.id)
+                    repo.clearPlanProgress(plan.id)
                     showDeleteDialog = null
                     reload()
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -174,10 +178,13 @@ private fun PlanCard(
         cal.add(Calendar.DAY_OF_YEAR, daysToFinish)
         dateFmt.format(cal.time)
     } else null
-    // 今日进度
-    val todayProgress = if (isStudy) pp?.sessionAnsweredCount ?: 0
-    else pp?.sessionBrowseIndex ?: 0
+    // 今日进度（仅当日会话生效；对齐小程序：今日进度 X/目标 + 进度条 + 完成横幅）
+    val sessionActive = pp?.sessionDate == today
+    val todayProgress = if (sessionActive) {
+        if (isStudy) pp?.sessionAnsweredCount ?: 0 else pp?.sessionBrowseIndex ?: 0
+    } else 0
     val todayTotal = plan.dailyCount
+    val isDoneToday = sessionDone || (todayTotal > 0 && todayProgress >= todayTotal)
     val progressText = if (!bankExists) "题库已删除"
     else if (answeredTotal > 0) "已完成 $answeredTotal / ${plan.totalQuestions} 题"
     else "每日 ${plan.dailyCount} 题"
@@ -219,6 +226,33 @@ private fun PlanCard(
         }
 
         Spacer(Modifier.height(10.dp))
+
+        // 今日进度：X/目标 + 进度条 + 完成横幅（对齐小程序计划卡片）
+        if (todayTotal > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("今日进度", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text("$todayProgress/$todayTotal", fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                    color = if (isDoneToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            }
+            Spacer(Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { (todayProgress.toFloat() / todayTotal).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            if (isDoneToday) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(4.dp))
+                    Text("今日目标已完成", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
         PunchCalendar(plan, pp, today)
         Spacer(Modifier.height(10.dp))
 

@@ -17,9 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
 import com.example.shuati.logic.Scoring
@@ -55,6 +57,7 @@ fun QuizScreen(
     showModeSelect: Boolean = false
 ) {
     val repo = repository()
+    val context = LocalContext.current
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }
@@ -100,10 +103,10 @@ fun QuizScreen(
                     val bi = repo.getPlanProgress(planId)?.sessionBrowseIndex ?: 0
                     index = bi.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
                 }
-                // 普通浏览模式：恢复上次浏览断点（对齐小程序 getBrowseProgress）
+                // 普通浏览模式：恢复上次浏览断点（对齐小程序 getBrowseProgress；取消勾选则从头开始）
                 isBrowse -> {
                     val bid = if (bankId == "__all__") "__all__" else bankId
-                    val bi = bid?.let { repo.getBrowseProgress(it) } ?: 0
+                    val bi = if (filterLocal) (bid?.let { repo.getBrowseProgress(it) } ?: 0) else 0
                     index = bi.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
                 }
             }
@@ -297,9 +300,17 @@ fun QuizScreen(
     fun commitProgress(correct: Boolean) {
         if (isBrowse) return // 浏览模式不记录判分/错题/进度
         val q = current.q
-        if (correct) repo.incrementStreak(current.bankId, q.id)
-        else {
-            repo.resetStreak(current.bankId, q.id)
+        val fromWrongs = source == "wrong"
+        if (correct && fromWrongs) {
+            // 错题练习：连对计数，达标自动移出错题本（对齐小程序 incrementStreak/removeWrongRecord）
+            val streak = repo.incrementStreak(current.bankId, q.id)
+            val target = repo.getMasteryTarget()
+            if (streak >= target) {
+                repo.removeWrongRecord(current.bankId, q.id)
+                Toast.makeText(context, "已连对${target}次，移出错题本", Toast.LENGTH_SHORT).show()
+            }
+        } else if (!correct) {
+            // 答错：所有模式（含错题/收藏练习）均记入错题本并累加答错次数
             repo.addWrongRecord(
                 com.example.shuati.model.WrongRecord(
                     bankId = current.bankId, bankName = bankName,
@@ -307,9 +318,8 @@ fun QuizScreen(
                     recordedAt = System.currentTimeMillis(), createdAt = System.currentTimeMillis()
                 )
             )
-        }
-        if (repo.getStreak(current.bankId, q.id) >= repo.getMasteryTarget()) {
-            repo.removeWrongRecord(current.bankId, q.id)
+            // 错题练习：答错清零连对次数（对齐小程序 resetStreak）
+            if (fromWrongs) repo.resetStreak(current.bankId, q.id)
         }
         when (source) {
             "plan" -> planId?.let { repo.savePlanAnswer(it, q.id) }
@@ -541,6 +551,49 @@ fun QuizScreen(
                             }
                             Spacer(Modifier.height(8.dp))
                             Text(formatAnswer(current.q), fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                            // 浏览模式：列出选项并高亮正确答案（对齐小程序浏览答案卡片）
+                            val browseOpts = current.q.options
+                            if (!browseOpts.isNullOrEmpty()) {
+                                val correctRaw = current.q.answer?.trim().orEmpty()
+                                val correctSet = correctRaw.split(Regex("[,，|｜、\\s]+")).map { it.trim().uppercase() }
+                                    .filter { it.isNotEmpty() }.toMutableSet()
+                                // 兼容无分隔符多字母答案（如 "AC"）
+                                if (correctSet.size == 1 && correctSet.first().length > 1) {
+                                    correctSet.clear()
+                                    correctSet.addAll(correctRaw.filter { it.isLetter() }.uppercase().map { it.toString() })
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                browseOpts.forEachIndexed { idx, opt ->
+                                    val letter = ('A'.code + idx).toChar().toString()
+                                    val isAnswer = correctSet.contains(letter)
+                                    Surface(
+                                        color = if (isAnswer) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = MaterialTheme.shapes.small,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                            Surface(
+                                                shape = MaterialTheme.shapes.small,
+                                                color = if (isAnswer) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outline
+                                            ) {
+                                                Text(letter, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                                    color = if (isAnswer) MaterialTheme.colorScheme.onPrimary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Spacer(Modifier.width(10.dp))
+                                            Text(opt, fontSize = 14.sp,
+                                                fontWeight = if (isAnswer) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isAnswer) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    if (idx < browseOpts.lastIndex) Spacer(Modifier.height(6.dp))
+                                }
+                            }
                             if (!current.q.explanation.isNullOrBlank()) {
                                 Spacer(Modifier.height(6.dp))
                                 Text("解析：${current.q.explanation}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)

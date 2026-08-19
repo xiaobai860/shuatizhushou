@@ -26,40 +26,63 @@ object Scoring {
     /** 严格相等（查重 / 相似判定） */
     fun strictEqual(a: String?, b: String?): Boolean = strict(a) == strict(b)
 
+    /** 常用干扰字集合（题目固定套话，对区分度无贡献）。等价 similarity.ts STOP_CHARS。 */
+    private val STOP_CHARS = setOf(
+        '的', '了', '是', '在', '有', '和', '与', '以', '也', '都', '个', '为',
+        '不', '对', '错', '该', '其', '这', '那', '或', '及', '但', '而', '就',
+        '可', '要', '能', '会', '到', '被', '把', '让', '使', '由', '于', '下',
+        '上', '中', '内', '外', '后', '前', '则', '并', '且', '又', '所', '如',
+    )
+
+    /** 清洗文本：去空白、去中英文标点、过滤高频干扰字。等价 similarity.ts cleanText。 */
+    private fun cleanText(text: String): String =
+        text.replace(Regex("\\s+"), "")
+            .replace(Regex("[，。？！、；：“”‘’（）【】《》\\[\\](),.?!;:'\"]"), "")
+            .filter { it !in STOP_CHARS }
+
+    /** n-gram 集合；文本短于 n 时退化为字符集。等价 similarity.ts ngrams。 */
+    private fun ngrams(text: String, n: Int): Set<String> {
+        val set = mutableSetOf<String>()
+        if (text.length < n) {
+            for (ch in text) set.add(ch.toString())
+            return set
+        }
+        for (i in 0..text.length - n) set.add(text.substring(i, i + n))
+        return set
+    }
+
+    private fun jaccardSimilarity(a: Set<String>, b: Set<String>): Double {
+        if (a.isEmpty() && b.isEmpty()) return 1.0
+        if (a.isEmpty() || b.isEmpty()) return 0.0
+        val intersect = a.count { it in b }
+        return intersect.toDouble() / (a.size + b.size - intersect)
+    }
+
+    /** A 相对 B 的 containment 系数：|A∩B| / |A|。等价 similarity.ts containment。 */
+    private fun containment(a: Set<String>, b: Set<String>): Double {
+        if (a.isEmpty()) return 0.0
+        val intersect = a.count { it in b }
+        return intersect.toDouble() / a.size
+    }
+
     /**
-     * 字符级相似度（Dice 系数）。
-     * 等价 similarity.ts similarity(s1, s2)。
+     * 文本相似度（v2）：bigram Jaccard × 0.5 + trigram Jaccard × 0.3 + containment 加成 × 0.2。
+     * 等价小程序 similarity.ts hybridSimilarity（v2 算法）。
      */
     fun similarity(s1: String?, s2: String?): Double {
-        val a = normalize(s1)
-        val b = normalize(s2)
+        val a = cleanText(s1 ?: "")
+        val b = cleanText(s2 ?: "")
         if (a == b) return 1.0
         if (a.isEmpty() && b.isEmpty()) return 1.0
         if (a.isEmpty() || b.isEmpty()) return 0.0
-
-        val bigramsA = bigrams(a)
-        val bigramsB = bigrams(b)
-        if (bigramsA.isEmpty() || bigramsB.isEmpty()) return 0.0
-
-        var overlap = 0
-        val countsB = bigramsB.groupingBy { it }.eachCount().toMutableMap()
-        for (bg in bigramsA) {
-            val c = countsB[bg]
-            if (c != null && c > 0) {
-                overlap++
-                countsB[bg] = c - 1
-            }
-        }
-        return 2.0 * overlap / (bigramsA.size + bigramsB.size)
-    }
-
-    private fun bigrams(s: String): List<String> {
-        if (s.length <= 1) return listOf(s)
-        val result = ArrayList<String>(s.length - 1)
-        for (i in 0 until s.length - 1) {
-            result.add(s.substring(i, i + 2))
-        }
-        return result
+        val biA = ngrams(a, 2)
+        val biB = ngrams(b, 2)
+        val triA = ngrams(a, 3)
+        val triB = ngrams(b, 3)
+        val biJ = jaccardSimilarity(biA, biB)
+        val triJ = jaccardSimilarity(triA, triB)
+        val cont = maxOf(containment(biA, biB), containment(biB, biA))
+        return biJ * 0.5 + triJ * 0.3 + cont * 0.2
     }
 
     /**

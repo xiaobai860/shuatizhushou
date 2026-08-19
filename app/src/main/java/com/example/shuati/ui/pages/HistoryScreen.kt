@@ -1,7 +1,6 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -211,8 +210,7 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable { /* TODO: 查看详情 */ },
+            .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {

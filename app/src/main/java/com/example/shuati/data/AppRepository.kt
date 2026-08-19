@@ -504,6 +504,8 @@ class AppRepository(private val context: Context) {
         val qs = bank.questions
         for (i in qs.indices) {
             for (j in i + 1 until qs.size) {
+                // 仅比对同类型（单选/多选同组），对齐小程序 superType
+                if (superType(qs[i].type) != superType(qs[j].type)) continue
                 val s = Scoring.similarity(qs[i].question, qs[j].question)
                 if (s >= threshold) result.add(Triple(qs[i], qs[j], s))
             }
@@ -521,6 +523,8 @@ class AppRepository(private val context: Context) {
         fun find(x: Int): Int { var r = x; while (parent[r] != r) { parent[r] = parent[parent[r]]; r = parent[r] }; return r }
         fun union(a: Int, b: Int) { parent[find(a)] = find(b) }
         for (i in qs.indices) for (j in i + 1 until qs.size) {
+            // 仅比对同类型（单选/多选同组），对齐小程序 superType
+            if (superType(qs[i].type) != superType(qs[j].type)) continue
             if (Scoring.similarity(qs[i].question, qs[j].question) >= threshold) union(i, j)
         }
         val groups = mutableMapOf<Int, MutableList<String>>()
@@ -529,17 +533,27 @@ class AppRepository(private val context: Context) {
     }
 
     /** 跨题库查重：在多个题库间聚合重复簇，返回每簇的 (bankId, questionId) 列表 */
+    private data class DedupItem(val bankId: String, val questionId: String, val type: QuestionType, val text: String)
+
     fun findDuplicateGroupsAcrossBanks(banks: List<QuestionBank>, threshold: Double): List<List<Pair<String, String>>> {
-        val all = banks.flatMap { b -> b.questions.map { Triple(b.id, it.id, it.question) } }
+        val all = banks.flatMap { b -> b.questions.map { DedupItem(b.id, it.id, it.type, it.question) } }
         val parent = IntArray(all.size) { it }
         fun find(x: Int): Int { var r = x; while (parent[r] != r) { parent[r] = parent[parent[r]]; r = parent[r] }; return r }
         fun union(a: Int, b: Int) { parent[find(a)] = find(b) }
         for (i in all.indices) for (j in i + 1 until all.size) {
-            if (Scoring.similarity(all[i].third, all[j].third) >= threshold) union(i, j)
+            // 仅比对同类型（单选/多选同组），对齐小程序 superType
+            if (superType(all[i].type) != superType(all[j].type)) continue
+            if (Scoring.similarity(all[i].text, all[j].text) >= threshold) union(i, j)
         }
         val groups = mutableMapOf<Int, MutableList<Pair<String, String>>>()
-        all.forEachIndexed { idx, t -> groups.getOrPut(find(idx)) { mutableListOf() }.add(t.first to t.second) }
+        all.forEachIndexed { idx, t -> groups.getOrPut(find(idx)) { mutableListOf() }.add(t.bankId to t.questionId) }
         return groups.values.filter { it.size >= 2 }.toList()
+    }
+
+    /** 题型大类：单选/多选视为同组，其余各自独立。等价 similarity.ts superType。 */
+    private fun superType(t: QuestionType): String = when (t) {
+        QuestionType.single, QuestionType.multiple -> "choice"
+        else -> t.name
     }
 
     /** 批量删除某题库的题目（按 id） */
