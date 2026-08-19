@@ -1,0 +1,36 @@
+# —— Android / Gradle 构建产物 ——
+*.iml
+.gradle/
+build/
+app/build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# —— 本地配置（含 SDK 路径，不同设备不同，勿入库） ——
+local.properties
+gradle.properties.local
+
+# —— IDE ——
+*.idea/
+*.iws
+*.ipr
+.DS_Store
+Thumbs.db
+~$*
+
+# —— 运行/调试输出 ——
+*.log
+*.hprof
+*.apk
+*.aar
+output.json
+
+# —— 本地工作记忆（迁移代码仓库不需要） ——
+.codebuddy/
+
+# —— 密钥/签名（若有） ——
+*.jks
+*.keystore
+signing.properties
