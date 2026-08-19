@@ -5,202 +5,334 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.shuati.data.AppRepository
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
-import com.example.shuati.ui.*
-import com.example.shuati.ui.components.CardBox
-import com.example.shuati.ui.components.EmptyState
-import com.example.shuati.ui.components.ScreenTopBar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DedupScreen(navController: NavController, bankId: String? = null) {
-    val repo = repository()
+fun DedupScreen(navController: NavController) {
+    val repo = remember { AppRepository(navController.context) }
     val banks = remember { repo.getBanks() }
-    var selectedBankId by remember { mutableStateOf(bankId ?: banks.firstOrNull()?.id ?: "") }
-    var crossBank by remember { mutableStateOf(bankId == null) }
-    var threshold by remember { mutableStateOf(repo.getDedupThreshold()) }
-    var thresholdText by remember { mutableStateOf(repo.getDedupThreshold().toString()) }
-    var showThreshold by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    // 分组结果：单题库 -> 题目 id 簇；跨题库 -> (bankId,questionId) 簇
-    var groups by remember { mutableStateOf(emptyList<Pair<String, List<String>>>()) }
-    var crossGroups by remember { mutableStateOf(emptyList<List<Pair<String, String>>>()) }
-    var selectedIds by remember { mutableStateOf(setOf<String>()) } // "bankId:questionId"
+    var isLoading by remember { mutableStateOf(false) }
+    var duplicateGroups by remember { mutableStateOf<List<List<Pair<String, Question>>>>(emptyList()) }
+    var statsText by remember { mutableStateOf("") }
+    var showAllGroups by remember { mutableStateOf(false) }
 
-    fun toKey(bankId: String, qid: String) = "$bankId:$qid"
+    val displayedGroups = if (showAllGroups) duplicateGroups else duplicateGroups.take(20)
 
     fun runDedup() {
-        selectedIds = emptySet()
-        if (crossBank) {
-            crossGroups = repo.findDuplicateGroupsAcrossBanks(banks, threshold)
-            groups = emptyList()
-        } else {
-            banks.find { it.id == selectedBankId }?.let { bank ->
-                groups = repo.findDuplicateGroups(bank, threshold).mapIndexed { idx, ids -> (idx + 1).toString() to ids }
+        isLoading = true
+        scope.launch {
+            val threshold = repo.getDedupThreshold()
+            val results = mutableListOf<List<Pair<String, Question>>>()
+            banks.forEach { bank ->
+                val groups = repo.findDuplicateGroups(bank, threshold)
+                groups.forEach { groupIds ->
+                    val groupQuestions = groupIds.mapNotNull { qid ->
+                        bank.questions.firstOrNull { it.id == qid }?.let { qid to it }
+                    }
+                    if (groupQuestions.size > 1) results.add(groupQuestions)
+                }
             }
-            crossGroups = emptyList()
+            duplicateGroups = results
+            statsText = "发现 ${results.size} 组重复题目"
+            isLoading = false
         }
     }
 
-    LaunchedEffect(selectedBankId, crossBank, threshold) { runDedup() }
-
-    val totalDupcount = if (crossBank) crossGroups.sumOf { it.size } else groups.sumOf { it.second.size }
-
     Scaffold(
         topBar = {
-            ScreenTopBar("查重检测", onBack = { navController.popBackStack() },
+            TopAppBar(
+                title = { Text("查重") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
                 actions = {
-                    TextButton(onClick = { showThreshold = true; thresholdText = threshold.toString() }) { Text("阈值 ${"%.2f".format(threshold)}") }
-                    if (selectedIds.isNotEmpty()) {
-                        TextButton(onClick = {
-                            if (crossBank) {
-                                // 按题库分组删除
-                                selectedIds.map { it.substringBefore(":") }.distinct().forEach { bid ->
-                                    val ids = selectedIds.filter { it.startsWith("$bid:") }.map { it.substringAfter(":") }.toSet()
-                                    repo.deleteQuestions(bid, ids)
-                                }
-                            } else {
-                                banks.find { it.id == selectedBankId }?.let { repo.deleteQuestions(it.id, selectedIds.map { it.substringAfter(":") }.toSet()) }
-                            }
-                            runDedup()
-                        }) { Text("删除选中(${selectedIds.size})") }
+                    IconButton(onClick = { navController.navigate("settings") }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
                 }
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            if (banks.isEmpty()) {
-                EmptyState("还没有题库，无法查重")
-                return@Scaffold
-            }
-            // 跨题库开关
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("跨题库查重", fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Switch(checked = crossBank, onCheckedChange = { crossBank = it })
-            }
-            if (!crossBank) {
-                var bankExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(bankExpanded, { bankExpanded = !bankExpanded }, Modifier.padding(16.dp)) {
-                    OutlinedTextField(
-                        banks.find { it.id == selectedBankId }?.name ?: "选择题库", {},
-                        readOnly = true, modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        leadingIcon = { Icon(Icons.Filled.Search, null) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankExpanded) }
-                    )
-                    ExposedDropdownMenu(bankExpanded, { bankExpanded = false }) {
-                        banks.forEach { b ->
-                            DropdownMenuItem(text = { Text("${b.name} (${b.questions.size})") },
-                                onClick = { selectedBankId = b.id; bankExpanded = false })
+        Column(
+            Modifier.fillMaxSize().padding(padding),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 操作区域
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { runDedup() },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isLoading
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                            } else {
+                                Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("开始查重")
+                            }
                         }
+
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    duplicateGroups.forEach { group ->
+                                        if (group.size > 1) {
+                                            // 保留第一条（参考题），删除其他
+                                            val idsToDelete = group.drop(1).map { it.second.id }.toSet()
+                                            val bankId = group[0].first
+                                            repo.deleteQuestions(bankId, idsToDelete)
+                                        }
+                                    }
+                                    snackbarHostState.showSnackbar("已清除重复题目")
+                                    duplicateGroups = emptyList()
+                                    statsText = ""
+                                }
+                            },
+                            enabled = duplicateGroups.isNotEmpty()
+                        ) {
+                            Icon(Icons.Filled.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("批量清除")
+                        }
+                    }
+
+                    if (statsText.isNotEmpty()) {
+                        Text(
+                            text = statsText,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
 
-            if (totalDupcount == 0) {
-                EmptyState("未发现重复题目（阈值 ${"%.2f".format(threshold)}）")
-            } else {
-                Text("共发现 $totalDupcount 道疑似重复题目（相似度 ≥ ${"%.2f".format(threshold)}）",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp))
-                LazyColumn(
-                    Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+            // 查重结果
+            if (duplicateGroups.isEmpty() && !isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    if (crossBank) {
-                        items(crossGroups) { group ->
-                            GroupCard(
-                                title = "重复簇（${group.size} 题）",
-                                items = group.map { (bid, qid) ->
-                                    val q = banks.find { it.id == bid }?.questions?.find { it.id == qid }
-                                    Triple(bid, qid, q?.question ?: "(未知)")
-                                },
-                                selectedIds = selectedIds,
-                                onToggle = { key -> selectedIds = if (selectedIds.contains(key)) selectedIds - key else selectedIds + key },
-                                keyOf = { (bid, qid, _) -> "$bid:$qid" },
-                                labelOf = { (bid, _, text) -> "${banks.find { it.id == bid }?.name ?: bid}：$text" }
-                            )
-                        }
-                    } else {
-                        items(groups) { (label, ids) ->
-                            val bank = banks.find { it.id == selectedBankId }!!
-                            GroupCard(
-                                title = "第 $label 组（${ids.size} 题）",
-                                items = ids.map { qid -> Triple(selectedBankId, qid, bank.questions.find { it.id == qid }?.question ?: "") },
-                                selectedIds = selectedIds,
-                                onToggle = { key -> selectedIds = if (selectedIds.contains(key)) selectedIds - key else selectedIds + key },
-                                keyOf = { (bid, qid, _) -> "$bid:$qid" },
-                                labelOf = { (_, _, text) -> text }
-                            )
+                    Text("暂无重复数据或尚未查重", textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(displayedGroups, key = { it.first().second.id }) { group ->
+                        DuplicateGroupCard(group, banks, repo, scope, snackbarHostState)
+                    }
+
+                    if (!showAllGroups && duplicateGroups.size > 20) {
+                        item {
+                            Button(
+                                onClick = { showAllGroups = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("显示全部 ${duplicateGroups.size} 组重复题目")
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    if (showThreshold) {
-        AlertDialog(
-            onDismissRequest = { showThreshold = false },
-            title = { Text("查重阈值") },
-            text = {
-                Column {
-                    Text("相似度 ≥ 阈值即判定为重复。值越小越严格。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = thresholdText,
-                        onValueChange = { thresholdText = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("0.10 ~ 1.00") }, singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    thresholdText.toDoubleOrNull()?.let {
-                        threshold = it.coerceIn(0.1, 1.0)
-                        repo.saveDedupThreshold(threshold)
-                    }
-                    showThreshold = false
-                    runDedup()
-                }) { Text("确定") }
-            },
-            dismissButton = { TextButton(onClick = { showThreshold = false }) { Text("取消") } }
-        )
     }
 }
 
 @Composable
-private fun GroupCard(
-    title: String,
-    items: List<Triple<String, String, String>>,
-    selectedIds: Set<String>,
-    onToggle: (String) -> Unit,
-    keyOf: (Triple<String, String, String>) -> String,
-    labelOf: (Triple<String, String, String>) -> String
+fun DuplicateGroupCard(
+    group: List<Pair<String, Question>>,
+    banks: List<QuestionBank>,
+    repo: AppRepository,
+    scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState
 ) {
-    CardBox {
-        Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-        Spacer(Modifier.height(6.dp))
-        items.forEach { item ->
-            val key = keyOf(item)
-            val checked = selectedIds.contains(key)
-            Row(Modifier.fillMaxWidth().clickable { onToggle(key) }, verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = checked, onCheckedChange = { onToggle(key) })
-                Text(labelOf(item), fontSize = 14.sp, modifier = Modifier.weight(1f),
-                    color = if (checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+    val firstBankId = group[0].first
+    val firstBankName = banks.find { b -> b.id == firstBankId }?.name ?: firstBankId
+
+    // 检查题型是否混合
+    val questionTypes = group.map { (_, q) -> q.type.name }.distinct()
+    val isMixedType = questionTypes.size > 1
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 标题行
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "重复组 #$firstBankName",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    if (isMixedType) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(12.dp))
+                            Text(
+                                "题型混合（${questionTypes.joinToString(" / ") { getTypeLabel(it) }}）",
+                                fontSize = 11.sp,
+                                color = Color(0xFFFF9800)
+                            )
+                        }
+                    }
+                }
+
+                // 相似度徽章
+                if (group.size > 1) {
+                    val avgSim = group.drop(1).map { (_, q) -> calculateSimilarity(group[0].second, q) }.average()
+                    val simColor = when {
+                        avgSim >= 0.95 -> Color(0xFFFF5252)
+                        avgSim >= 0.85 -> Color(0xFFFF9800)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Badge(
+                        containerColor = simColor.copy(alpha = 0.15f),
+                        contentColor = simColor
+                    ) {
+                        Text("${(avgSim * 100).toInt()}%", fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // 题目列表
+            group.forEachIndexed { index, (bankId, question) ->
+                val bankName = banks.find { b -> b.id == bankId }?.name ?: bankId
+                val isReference = index == 0
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 参考题标签 / 序号
+                    if (isReference) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = Color(0xFFE3F2FD)
+                        ) {
+                            Text(
+                                "参考题",
+                                fontSize = 10.sp,
+                                color = Color(0xFF1565C0),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "${index + 1}.",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.width(20.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                    }
+
+                    // 题目内容
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = question.question,
+                            fontSize = 14.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = bankName,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // 删除按钮（非参考题可删除）
+                    if (!isReference) {
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    repo.deleteQuestions(bankId, setOf(question.id))
+                                    snackbarHostState.showSnackbar("已删除")
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Filled.DeleteOutline,
+                                contentDescription = "删除",
+                                tint = Color(0xFFFF5252),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+fun getTypeLabel(typeName: String): String = when (typeName) {
+    "single" -> "单选"
+    "multiple" -> "多选"
+    "judge" -> "判断"
+    "fill" -> "填空"
+    "essay" -> "简答"
+    else -> typeName
+}
+
+fun calculateSimilarity(q1: Question, q2: Question): Double {
+    val text1 = q1.question.trim()
+    val text2 = q2.question.trim()
+    if (text1 == text2) return 1.0
+    if (text1.isEmpty() || text2.isEmpty()) return 0.0
+
+    val bigrams1 = text1.toList().windowed(2).toSet()
+    val bigrams2 = text2.toList().windowed(2).toSet()
+    val intersection = bigrams1.intersect(bigrams2).size
+    val union = bigrams1.union(bigrams2).size
+    return if (union == 0) 0.0 else intersection * 2.0 / union
 }
