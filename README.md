@@ -1,61 +1,224 @@
-# 刷题 (Shuati) — Android 原生版
+# 刷题助手（Shuati） — Android 原生版
 
-将微信小程序「刷题小程序」复刻为 Android 原生应用。
+一款**刷题练习**应用，将微信小程序「刷题小程序」完整复刻为 Android 原生实现，并在此基础上重构了 UI 架构（底部导航四 Tab），功能与小程序对齐且部分增强。
+
+---
 
 ## 技术栈
-- **语言**：Kotlin
-- **UI**：Jetpack Compose + Material 3
-- **架构**：单 Activity + Compose Navigation
-- **存储**：DataStore (Preferences)，以 JSON 持久化（等价复刻小程序 `storage.ts` 同步存储语义）
-- **序列化**：kotlinx.serialization
-- **Excel 导入**：Apache POI (XSSF)
-- **最小/目标/编译 SDK**：minSdk 34 / targetSdk 36 / compileSdk 37
 
-## 功能对照（小程序 14 个页面）
-| 小程序页面 | Android 页面 |
+| 类别 | 技术 |
 |---|---|
-| home | `ui.pages.HomeScreen` |
-| library | `ui.pages.LibraryScreen` |
-| import | `ui.pages.ImportScreen` |
-| quiz | `ui.pages.QuizScreen` |
-| result | `ui.pages.ResultScreen` |
-| wrongs | `ui.pages.WrongsScreen` |
-| favorites | `ui.pages.FavoritesScreen` |
-| history | `ui.pages.HistoryScreen` |
-| backup | `ui.pages.BackupScreen` |
-| edit-bank | `ui.pages.EditBankScreen` |
-| search | `ui.pages.SearchScreen` |
-| stats | `ui.pages.StatsScreen` |
-| recommend | `ui.pages.RecommendScreen` |
-| study-plan | `ui.pages.StudyPlanScreen` |
-| dedup | `ui.pages.DedupScreen` |
+| 语言 | Kotlin（JVM 17） |
+| UI | Jetpack Compose + Material 3（BOM 2025.01.00） |
+| 架构 | 单 Activity + Compose Navigation（navigation-compose 2.8.5） |
+| 存储 | DataStore Preferences（以 JSON 字符串持久化，等价复刻小程序 `storage.ts` 同步语义） |
+| 序列化 | kotlinx-serialization 1.7.3 |
+| Excel | Apache POI 5.3.0（导入解析 / 导出生成） |
+| SDK | minSdk 34 / targetSdk 36 / compileSdk 37 |
 
-## 核心逻辑（等价复刻）
-- 判分与查重：`logic/Scoring.kt`（Dice 相似度、宽松/严格判定、`judge()` 解析答案）
-- Excel 解析：`logic/ExcelParser.kt`（B/C 列格式，D 选项、E 解析、F 标签、G 题型）
-- 数据层：`data/AppRepository.kt`（题库/错题/收藏/进度/历史/计划/备份/查重阈值/掌握度）
+当前版本：**v1.0.9**（versionCode 10）
 
-## 构建与运行
-1. 用 **Android Studio** (Hedgehog 或更新，含 Android SDK Platform 37) 打开本目录 `e:\Android\shuati`。
-2. 等待 Gradle 同步（会自动下载 Gradle 8.11.1 与依赖）。
-3. 连接设备或启动模拟器（API 34+）。
-4. 点击 ▶ Run，或直接 `./gradlew assembleDebug`。
+---
 
-> 注意：本项目在创建时所在环境无 Java / Android SDK / Gradle，未执行本地编译。
-> 请在具备 Android 构建环境的机器上首次打开并执行 Gradle 同步后再运行。
+## 应用图标
 
-## 目录结构
+靛蓝渐变背景 + 白色翻开的书 + 绿色对勾，贴合"刷题"主题（Adaptive Icon，`res/drawable/ic_launcher_background.xml` / `ic_launcher_foreground.xml`）。
+
+---
+
+## 功能总览（底部导航 4 Tab）
+
+```
+┌─────────────────────────────────┐
+│ 首页 │ 学习 │ 题库 │ 我的        │  ← 底部导航栏
+└─────────────────────────────────┘
+```
+
+- **首页**：数据总览与快速开始
+- **学习**：智能推荐与学习记录汇总
+- **题库**：题库管理与入口聚合
+- **我的**：数据管理与应用信息
+
+其余功能页（刷题、结果、编辑、导入、查重、错题、收藏、历史、统计、搜索、备份、计划等）均为**全屏详情页**，进入后自动隐藏底部导航栏。
+
+---
+
+## 各模块功能详解
+
+### 首页（HomeScreen）
+
+- **统计概览**：题库数、题目总数、错题数、今日连续天数、进行中计划数、收藏数
+- **快速开始**：全部题库（进入模式选择）、浏览模式、错题回顾、学习计划
+- **最近题库**：最近使用的题库列表，显示题目总数、已答进度条（已答 x/y）、"已刷完"状态
+- 支持点击题库直接进入刷题
+
+### 题库 Tab（LibraryTabScreen）
+
+- 题库 / 题目总数统计
+- 快捷入口：**题库管理、导入题库、查重检测、全部题库**
+- **我的题库**：每个题库卡片显示重/错徽章、掌握进度；操作含刷题、浏览、只练错题、批量刷、导出 Excel、清除进度、单库查重、编辑、删除
+
+### 学习 Tab（StudyTabScreen）
+
+- **智能推荐**：一键进入推荐页
+- **学习记录**：学习计划、错题回顾、收藏题目、刷题历史（带数量角标）
+
+### 我的 Tab（MineTabScreen）
+
+- 数据管理：统计分析、题目搜索、备份还原
+- **存储空间**：应用占用空间统计卡片
+- 版本号展示
+
+### 刷题（QuizScreen）⭐ 核心
+
+- **模式选择页**：顺序刷题 / 随机刷题 / 浏览模式（含已答进度、上次浏览位置、清除进度）
+- **题型支持**：单选、多选、判断、填空（多空）、简答
+- **作答交互**：选项判分高亮、填空多空判定（支持"不限答案顺序"开关并持久化到题库）、提交后显示答案与解析
+- **浏览模式**：直接展示正确答案与解析、选项正确项高亮，断点自动保存/恢复（含学习计划浏览断点）
+- **计时**：本题用时 + 总用时双计时
+- **收藏**：答题中一键收藏/取消
+- **跳题浮层**：显示题目序号、题型标记、已答状态
+- **退出确认**：退出前弹窗确认，进度自动保存
+- **错题联动**：答错自动计入错题本，答对连对 N 次（仅错题练习）自动移出错题本
+- **过滤能力**：跳过未完成的残缺题目、只刷未做过的题目
+- **中途退出**：已答进度写入历史，支持续练
+
+### 结果页（ResultScreen）
+
+- 个性化正确率标签（太棒了 / 表现不错 / 继续加油 / 需要复习）
+- 正确率进度条、总题数、答对 / 答错、总用时、均秒每题
+- 浏览模式完成态展示
+- 重新刷题、错题回顾、返回首页
+
+### 题库管理（LibraryScreen / EditBankScreen）
+
+- 题库列表：搜索、新建、导入、批量删除、批量刷题
+- 单库操作：浏览、顺序/随机刷、只练错题、导出 Excel、单库查重、清除进度
+- **编辑题库**：题目增删改、题型切换、选项动态增删（2-7 个）、答案/解析/标签编辑
+- **疑似错题 Tab**：自动识别疑似错题（缺少选项/答案异常），支持一键修正缺失/重复 ID
+- 搜索题目、分页浏览
+
+### Excel 导入 / 导出（ImportScreen / ExcelParser / ExcelWriter）
+
+- **模板下载**：内置 Excel 模板
+- **导入解析**：支持 B 列题干、C 列题型、D 列选项、E 列答案、F 列标签、G 列解析
+- **质量问题标记**：不完整题目（缺选项/答案）、ID 缺失/重复自动标记
+- **去重选项**：导入时可选择跳过重复题
+- **导出**：题库导出为 Excel 文件
+
+### 错题本（WrongsScreen）
+
+- 按答错次数降序展示，含题型标签、答案预览
+- **失效记录**：关联题库已被删除的错题单独展示，支持一键清除
+- **清空错题**：全部清空或按当前筛选清空
+- **重做**：全部重做进入刷题（错题练习模式，连对达标自动移出）
+
+### 收藏（FavoritesScreen）
+
+- 按题库分类筛选、题型标签展示、答案预览
+- **批量练习**（全部/当前题库）、**单题练习**
+- 取消收藏、失效收藏一键清除
+
+### 刷题历史（HistoryScreen）
+
+- 历史记录列表（题库、模式、成绩、用时），含正确率进度条
+- 按题库筛选、**清空历史**（带确认弹窗）
+
+### 学习计划（StudyPlanScreen）
+
+- 创建计划：名称、题库（含"全部题库"）、模式（顺序/随机/浏览）、每日目标、截止日期
+- **打卡**：打卡日历（每轮 N 天）、今日已打卡、今日完成进度条、今日目标完成横幅
+- 预计完成日期、剩余天数 / 轮次
+- **开始任务**：断点续练（今日会话续接 / 新会话生成）
+- 归档 / 恢复 / 删除（删除时同步清理独立进度）、失效计划一键清除
+
+### 智能推荐（RecommendScreen）
+
+- 综合推荐算法，考虑：**错题**（时效衰减加权）、**收藏**、**低正确率题库**、**新题库**、**题型多样性兜底**
+- 每条推荐展示推荐理由；一键练习全部推荐题目
+
+### 查重检测（DedupScreen）
+
+- 三种模式：单题库查重、分组查重、跨题库查重
+- **算法 v2**：bigram×0.5 + trigram×0.3 + containment×0.2 + 中文干扰字过滤，与小程序一致
+- **类型过滤**：仅比对同类型题目（单选/多选同组，判断/填空/简答各自独立）
+- 未选中题库时"开始查重"不可点击；相似分组展示、批量删除
+
+### 统计分析（StatsScreen）
+
+- 总正确率、累计刷题数、总用时、刷题次数、答对题数、最高/平均正确率、平均每题用时
+- 近 7 次正确率趋势、正确率分布、模式分布、按题库正确率、题型分布
+
+### 题目搜索（SearchScreen）
+
+- 关键词搜索 + 标签筛选（可单独按标签筛选）
+- 结果展示题型标签、题目标签、答案预览，点击进入编辑
+
+### 备份与还原（BackupScreen）
+
+- **导出备份**：全量数据导出为 JSON 文件
+- **还原备份**：支持覆盖 / 合并还原
+- 备份内容：题库、错题、收藏、历史、计划、进度、掌握目标、查重阈值等全部数据
+- **清空所有数据**：一键清空全部数据（带确认弹窗）
+
+---
+
+## 数据与核心逻辑
+
 ```
 app/src/main/java/com/example/shuati/
-├── MainActivity.kt / ShuatiApplication.kt
-├── model/QuizModels.kt          # 数据模型
-├── logic/Scoring.kt             # 判分 / 相似度
-├── logic/ExcelParser.kt         # Excel 解析
-├── data/AppRepository.kt        # 数据仓库（等价 storage.ts）
+├── MainActivity.kt / ShuatiApplication.kt   # 入口与全局单例
+├── model/QuizModels.kt                      # 数据模型（Question/Bank/Wrong/Favorite/Progress/History/Plan...）
+├── data/AppRepository.kt                    # 数据仓库：DataStore+JSON 持久化（题库/错题/收藏/进度/历史/计划/备份/设置）
+├── logic/Scoring.kt                         # 判分、答案解析、相似度 v2、疑似错题判定
+├── logic/ExcelParser.kt / ExcelWriter.kt    # Excel 导入 / 导出
+├── logic/Recommend.kt                       # 智能推荐算法
 └── ui/
-    ├── AppNavHost.kt            # 导航图
-    ├── Routes.kt                # 路由与 repository 获取
-    ├── theme/                   # 主题
-    ├── components/Common.kt     # 通用组件
-    └── pages/                   # 14 个页面
+    ├── AppNavHost.kt                        # 导航图 + 底部导航 + 返回键处理
+    ├── Routes.kt                            # 路由与 repository() 单例获取
+    ├── theme/                               # Material3 主题
+    ├── components/Common.kt                 # 通用组件（卡片/空状态/标签/答案格式化）
+    └── pages/                               # 全部页面（16 个）
 ```
+
+- **数据层**：`AppRepository` 全局单例（Application 持有），DataStore 使用顶层委托保证唯一实例；页面统一通过 `repository()` 获取，避免多实例崩溃
+- **判分**：`Scoring.judge()` 解析并判定单选/多选/判断/填空/简答，多空支持顺序无关
+- **查重**：`Scoring.similarity()` 实现相似度 v2
+- **推荐**：`Recommend.buildRecommendations()` 实现多维加权推荐
+
+---
+
+## 构建与运行
+
+```bash
+# 编译
+./gradlew :app:compileDebugKotlin
+
+# 构建 Debug APK
+./gradlew assembleDebug
+
+# 产物
+app/build/outputs/apk/debug/app-debug.apk
+
+# 安装到已连接设备
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+环境要求：Android Studio（含 SDK Platform 37）、JDK 17、Android 设备 API 34+。
+
+---
+
+## 版本历史
+
+| 版本 | 说明 |
+|---|---|
+| 1.0.9 | 修复返回键退出逻辑、DataStore 单例化 |
+| 1.0.8 | 修复底部导航返回键（Tab 页直接退出） |
+| 1.0.7 | 返回行为调整、查重按钮禁用、新应用图标 |
+| 1.0.6 | 返回键行为、查重按钮禁用、新图标（初版） |
+| 1.0.5 | 修复 DataStore 多实例崩溃 |
+| 1.0.4 | 状态栏空白修复 |
+| 1.0.3 | Tab 顺序调整、标题去版本号 |
+| 1.0.2 | UI 重构：底部导航四 Tab |
+| 1.0.1 | 查重算法升级 v2、版本号管理 |
+| 1.0.0 | 与小程序功能对齐，补齐全部缺失功能 |
