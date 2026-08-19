@@ -31,6 +31,7 @@ fun HomeScreen(navController: NavController) {
     var favCount by remember { mutableStateOf(0) }
     var planCount by remember { mutableStateOf(0) }
     var todayStreak by remember { mutableStateOf(0) }
+    var storageUsed by remember { mutableStateOf(0L) }
 
     LaunchedEffect(Unit) {
         val bs = repo.getBanks()
@@ -40,6 +41,7 @@ fun HomeScreen(navController: NavController) {
         favCount = repo.getFavoriteRecords().size
         planCount = repo.getStudyPlans().count { !it.archived }
         todayStreak = repo.getTodayStreak()
+        storageUsed = repo.storageUsedBytes()
     }
 
     Scaffold(
@@ -63,6 +65,43 @@ fun HomeScreen(navController: NavController) {
                     StatCard("今日连续", todayStreak.toString() + "天", Modifier.weight(1f))
                     StatCard("进行中计划", planCount.toString(), Modifier.weight(1f))
                     StatCard("收藏", favCount.toString(), Modifier.weight(1f))
+                }
+            }
+
+            // 存储空间
+            item {
+                CardBox {
+                    val usedKb = storageUsed / 1024.0
+                    val limitKb = 10240.0  // 展示上限 10MB
+                    val ratio = (usedKb / limitKb).toFloat().coerceIn(0f, 1f)
+                    val warning = usedKb / limitKb >= 0.7
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Storage, contentDescription = null,
+                            tint = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("存储空间", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(formatBytes(storageUsed), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                        if (warning) {
+                            Text("占用较多", fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { ratio },
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (warning) "本地数据占用较多，可在「备份还原」中清理或导出备份"
+                        else "数据保存在本机，可在「备份还原」中导出备份",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -150,4 +189,11 @@ private fun QuickEntry(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             Text(label, fontSize = 13.sp)
         }
     }
+}
+
+/** 字节数格式化为可读字符串 */
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+    bytes >= 1024L -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+    else -> "$bytes B"
 }

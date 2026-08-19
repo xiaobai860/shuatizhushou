@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,9 +69,12 @@ fun QuizScreen(
         }
     }
 
+    // 只刷未做题：本地可切换（初始取导航参数，如结果页「只刷未做」入口）
+    var filterLocal by remember { mutableStateOf(filterUnanswered) }
+
     // 计算本次作答序列（含真实 bankId）
-    val queue = remember(bankId, mode, source, planId, filterUnanswered, specifiedQuestions) {
-        buildQueue(repo, bankId, mode, source, planId, filterUnanswered, specifiedQuestions)
+    val queue = remember(bankId, mode, source, planId, filterLocal, specifiedQuestions) {
+        buildQueue(repo, bankId, mode, source, planId, filterLocal, specifiedQuestions)
     }
 
     var index by remember { mutableStateOf(0) }
@@ -96,7 +101,15 @@ fun QuizScreen(
     if (queue.isEmpty()) {
         Scaffold(topBar = { ScreenTopBar("答题", onBack = { navController.popBackStack() }) }) {
             Box(Modifier.fillMaxSize().padding(it), contentAlignment = Alignment.Center) {
-                Text("没有可作答的题目")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("没有可作答的题目")
+                    if (filterLocal) {
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { filterLocal = false }) {
+                            Text("取消「只刷未做题」，显示全部")
+                        }
+                    }
+                }
             }
         }
         return
@@ -115,6 +128,26 @@ fun QuizScreen(
     val answeredThisSession = remember { mutableStateListOf<String>() }
     var finished by remember { mutableStateOf(false) }
     var favState by remember(current.q.id) { mutableStateOf(repo.isFavorite(current.bankId, current.q.id)) }
+
+    // 填空多空输入与顺序无关开关（随题目重置；初始取题目 orderFree 属性）
+    val fillSlotN = Scoring.fillSlotCount(current.q)
+    var fillInputs by remember(current.q.id, fillSlotN) { mutableStateOf(List(fillSlotN) { "" }) }
+    var fillOrderFree by remember(current.q.id) { mutableStateOf(current.q.orderFree) }
+
+    // 判分：填空走多空判分（支持顺序无关），其余走通用判分
+    fun judgeAnswer(q: Question, sel: Any?): Boolean = when (q.type) {
+        QuestionType.fill -> Scoring.judgeFill(fillInputs, q, fillOrderFree)
+        else -> Scoring.judge(sel, q)
+    }
+
+    // 只刷未做题开关：切换后从第一题重建队列
+    fun toggleFilter() {
+        filterLocal = !filterLocal
+        index = 0
+        showJump = false
+        submitted = isBrowse
+        selected = initialAnswer(current.q)
+    }
 
     // 浏览模式记录浏览进度
     LaunchedEffect(index, isBrowse) {
@@ -152,6 +185,12 @@ fun QuizScreen(
                 val newAnswered = (repo.getProgress(it)?.answeredIds ?: emptyList()) + done
                 repo.saveProgress(it, newAnswered.distinct(), index >= queue.lastIndex)
             }
+            // 全部题库：进度统一记到 __all__（namespaced，避免跨题库 id 冲突）
+            "all" -> {
+                val done = queue.take(index + 1).map { "${it.bankId}::${it.q.id}" }
+                val newAnswered = (repo.getProgress("__all__")?.answeredIds ?: emptyList()) + done
+                repo.saveProgress("__all__", newAnswered.distinct(), index >= queue.lastIndex)
+            }
         }
     }
 
@@ -164,6 +203,14 @@ fun QuizScreen(
                     // 跳题浮层
                     IconButton(onClick = { showJump = true }) {
                         Icon(Icons.Filled.ListAlt, contentDescription = "跳题")
+                    }
+                    // 只刷未做题开关（与 FlashOn 相邻；点击重建队列）
+                    IconButton(onClick = { toggleFilter() }) {
+                        Icon(
+                            if (filterLocal) Icons.Filled.FilterAlt else Icons.Filled.FilterAltOff,
+                            contentDescription = "只刷未做题",
+                            tint = if (filterLocal) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
                     }
                     if (!isBrowse) {
                         IconButton(onClick = { autoNext = !autoNext }) {
@@ -267,11 +314,54 @@ fun QuizScreen(
                             }
                         }
                     }
-                    QuestionType.fill, QuestionType.essay -> {
+                    QuestionType.fill -> {
+                        // 多空填空输入（每空一个输入框）
+                        fillInputs.forEachIndexed { i, v ->
+                            val slotCorrect = submitted && !isBrowse &&
+                                Scoring.fillSlotCorrectness(fillInputs, current.q, fillOrderFree).getOrNull(i) == true
+                            val slotWrong = submitted && !isBrowse &&
+                                Scoring.fillSlotCorrectness(fillInputs, current.q, fillOrderFree).getOrNull(i) == false
+                            OutlinedTextField(
+                                value = v,
+                                onValueChange = { newVal ->
+                                    if (!submitted) fillInputs = fillInputs.toMutableList().also { it[i] = newVal }
+                                },
+                                label = { Text(if (fillSlotN > 1) "第 ${i + 1} 空" else "输入答案") },
+                                enabled = !submitted,
+                                isError = slotWrong,
+                                supportingText = when {
+                                    slotWrong -> { { Text("答错") } }
+                                    slotCorrect -> { { Text("答对", color = MaterialTheme.colorScheme.primary) } }
+                                    else -> null
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        // 多空且未提交：显示「不限答案顺序」开关
+                        if (fillSlotN > 1 && !submitted) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable { fillOrderFree = !fillOrderFree }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Switch(
+                                    checked = fillOrderFree,
+                                    onCheckedChange = { fillOrderFree = it },
+                                    modifier = Modifier.scale(0.8f)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("不限答案顺序", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    QuestionType.essay -> {
                         OutlinedTextField(
                             value = (selected as? String) ?: "",
                             onValueChange = { if (!submitted) selected = it },
-                            label = { Text(if (current.q.type == QuestionType.fill) "输入答案" else "输入要点") },
+                            label = { Text("输入要点") },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
                             enabled = !submitted
                         )
@@ -280,7 +370,7 @@ fun QuizScreen(
 
                 if (submitted && !isBrowse) {
                     CardBox {
-                        val correct = Scoring.judge(selected, current.q)
+                        val correct = judgeAnswer(current.q, selected)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 if (correct) Icons.Filled.CheckCircle else Icons.Filled.Cancel, null,
@@ -292,6 +382,14 @@ fun QuizScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Text("正确答案：${formatAnswer(current.q)}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        if (current.q.type == QuestionType.fill && fillSlotN > 1) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "（${if (fillOrderFree) "已开启不限顺序" else "按顺序匹配"}）",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (!current.q.explanation.isNullOrBlank()) {
                             Spacer(Modifier.height(6.dp))
                             Text("解析：${current.q.explanation}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)
@@ -317,8 +415,12 @@ fun QuizScreen(
                 } else if (!submitted) {
                     OutlinedButton(onClick = { navController.popBackStack() }, modifier = Modifier.weight(1f)) { Text("退出") }
                     Button(onClick = {
-                        if (selected == initialAnswer(current.q)) return@Button
-                        val correct = Scoring.judge(selected, current.q)
+                        val isEmpty = when (current.q.type) {
+                            QuestionType.fill -> fillInputs.none { it.isNotBlank() }
+                            else -> selected == initialAnswer(current.q)
+                        }
+                        if (isEmpty) return@Button
+                        val correct = judgeAnswer(current.q, selected)
                         commitProgress(correct)
                         submitted = true
                         if (correct) correctCount++ else wrongCount++
@@ -414,6 +516,12 @@ private fun formatAnswer(q: Question): String = when (q.type) {
         idx.joinToString("") { ('A' + it).toString() } + " " +
                 idx.joinToString("、") { q.options?.get(it) ?: "" }
     }
+    QuestionType.fill -> {
+        val parts = (q.answer ?: "").split(Regex("[|｜]"))
+            .map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size > 1) parts.mapIndexed { i, a -> "第${i + 1}空：$a" }.joinToString("　")
+        else parts.firstOrNull() ?: ""
+    }
     else -> q.answer ?: ""
 }
 
@@ -458,11 +566,12 @@ private fun buildQueue(
             rec.question?.let { QuizItem(rec.bankId, it) }
         }
         "all" -> {
-            // 全部题库：跨题库聚合
+            // 全部题库：跨题库聚合；只刷未做题时按 __all__ 进度（namespaced）过滤
             val banks = repo.getBanks()
             val all = banks.flatMap { b -> b.questions.map { QuizItem(b.id, it) } }
             val base = if (filterUnanswered) {
-                all.filter { repo.getProgress(it.bankId)?.answeredIds?.contains(it.q.id) != true }
+                val doneSet = repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet()
+                all.filter { "${it.bankId}::${it.q.id}" !in doneSet }
             } else all
             if (effectiveMode == "random") base.shuffled() else base
         }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,10 +21,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.logic.ExcelParser
+import com.example.shuati.logic.ExcelWriter
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,15 +73,48 @@ fun ImportScreen(navController: NavController) {
         }
     }
 
+    // 下载 Excel 模板（SAF 创建文件）
+    var templateMsg by remember { mutableStateOf<String?>(null) }
+    val templateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelWriter.writeTemplate(out)
+                        } != null
+                    } catch (_: Exception) { false }
+                }
+                templateMsg = if (ok) "模板已保存，可打开填写后重新导入" else "模板保存失败"
+            }
+        }
+    }
+
     Scaffold(topBar = { ScreenTopBar("导入题库", onBack = { navController.popBackStack() }) }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                "支持 Excel (.xlsx) 导入。格式：B 列题干、C 列答案、D 列选项（| 分隔）、E 列解析、F 列标签（| 分隔）、G 列题型。",
+                "支持 Excel (.xlsx) 导入。格式：B 列题干、C 列答案、D 列选项（| 分隔）、E 列解析、F 列标签（| 分隔）、G 列题型。\n也支持按表头列名识别（题目ID / 题型 / 题干 / 选项A-G / 正确答案 / 解析 / 标签），可直接用下方模板填写。",
                 fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            OutlinedButton(
+                onClick = { templateLauncher.launch("题库导入模板.xlsx") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Download, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("下载 Excel 模板")
+            }
+            if (templateMsg != null) {
+                Text(templateMsg!!, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+            }
 
             Button(
                 onClick = {

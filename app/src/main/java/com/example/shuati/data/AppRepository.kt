@@ -489,6 +489,15 @@ class AppRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 本地存储占用（字节）：DataStore 持久化文件大小总和。
+     * 等价小程序 Taro.getStorageInfoSync().currentSize 的展示用途。
+     */
+    fun storageUsedBytes(): Long {
+        val dir = java.io.File(context.filesDir, "datastore")
+        return dir.listFiles()?.sumOf { it.length() } ?: 0L
+    }
+
     /** 查重：在指定题库中找出相似度 ≥ 阈值的题目对。等价 dedup 页逻辑。 */
     fun findDuplicates(bank: QuestionBank, threshold: Double): List<Triple<Question, Question, Double>> {
         val result = mutableListOf<Triple<Question, Question, Double>>()

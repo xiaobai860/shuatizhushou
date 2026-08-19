@@ -1,6 +1,8 @@
 package com.example.shuati.ui.pages
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,12 +25,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.logic.ExcelWriter
+import com.example.shuati.logic.Scoring
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -38,11 +43,36 @@ import java.util.*
 fun LibraryScreen(navController: NavController) {
     val repo = repository()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var banks by remember { mutableStateOf(emptyList<QuestionBank>()) }
     var searchKeyword by remember { mutableStateOf("") }
     var showDelete by remember { mutableStateOf<QuestionBank?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val context = LocalContext.current
+
+    // 导出题库 Excel（SAF 创建文件）
+    var exportBank by remember { mutableStateOf<QuestionBank?>(null) }
+    var exportMsg by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    ) { uri ->
+        val bank = exportBank
+        exportBank = null
+        if (bank == null || uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            exportMsg = "正在导出…"
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        ExcelWriter.writeBank(bank, out)
+                    } != null
+                } catch (_: Exception) { false }
+            }
+            exportMsg = if (ok) "已导出 ${bank.name}.xlsx" else "导出失败，请重试"
+        }
+    }
 
     fun loadBanks() {
         banks = repo.getBanks()
@@ -87,8 +117,15 @@ fun LibraryScreen(navController: NavController) {
                     Icon(Icons.Filled.Add, contentDescription = "新增")
                 }
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
+        LaunchedEffect(exportMsg) {
+            if (exportMsg != null) {
+                snackbarHostState.showSnackbar(exportMsg!!)
+                exportMsg = null
+            }
+        }
         Column(Modifier.fillMaxSize().padding(padding)) {
             OutlinedTextField(
                 value = searchKeyword,
@@ -152,6 +189,7 @@ fun LibraryScreen(navController: NavController) {
                     val pct = if (target > 0) (maxStreak.toFloat() / target).coerceIn(0f, 1f) else 0f
                     val dupGroups = repo.findDuplicateGroups(bank, repo.getDedupThreshold())
                     val dupCount = dupGroups.sumOf { it.size } - dupGroups.size
+                    val suspectCount = bank.questions.count { Scoring.checkIsSuspect(it) }
 
                     CardBox(
                         onClick = {
@@ -199,13 +237,13 @@ fun LibraryScreen(navController: NavController) {
                                         fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            if (dupCount > 0) {
-                                Spacer(Modifier.width(8.dp))
-                                Badge(
-                                    containerColor = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Text(dupCount.toString(), fontSize = 10.sp, color = Color.White)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (dupCount > 0) {
+                                    LibraryBadge("重$dupCount", MaterialTheme.colorScheme.tertiary)
+                                }
+                                if (suspectCount > 0) {
+                                    Spacer(Modifier.width(4.dp))
+                                    LibraryBadge("错$suspectCount", MaterialTheme.colorScheme.error)
                                 }
                             }
                             Spacer(Modifier.width(4.dp))
@@ -235,6 +273,23 @@ fun LibraryScreen(navController: NavController) {
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("只练 $wrongCount 道错题") }
                         }
+                        Spacer(Modifier.height(6.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { exportBank = bank; exportLauncher.launch("${bank.name}.xlsx") },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("导出 Excel")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=browse&source=browse")
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("浏览") }
+                        }
                     }
                 }
             }
@@ -259,6 +314,19 @@ fun LibraryScreen(navController: NavController) {
             dismissButton = {
                 TextButton(onClick = { showDelete = null }) { Text("取消") }
             }
+        )
+    }
+}
+
+/** 题库卡片的小徽章（如"重N"重复题、"错N"疑似错题） */
+@Composable
+private fun LibraryBadge(text: String, color: Color) {
+    Surface(color = color, shape = RoundedCornerShape(50), contentColor = Color.White) {
+        Text(
+            text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
         )
     }
 }

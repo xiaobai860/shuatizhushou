@@ -178,9 +178,64 @@ object Scoring {
             s in setOf("错误", "错", "×", "x", "false", "0", "no", "否", "不对") -> false
             s in setOf("正确", "对", "√", "v", "true", "1", "yes", "是") -> true
             else -> {
-                // 兜底：含"错误/错"字样判错，否则判对
+                // 兜底：含"错误/不对/错"字样判错，否则判对
                 Regex("(错误|不对|错)").containsMatchIn(s)
             }
         }
+    }
+
+    /**
+     * 填空多空判分。等价 quiz/index.tsx 的 checkCorrect（fill 分支）+ getFillSlotCorrectness。
+     *
+     * @param userInputs 用户逐空输入（每空一个字符串，可能为空串）
+     * @param orderFree 是否不限顺序（仅多空有效；用户可手动切换）
+     * @return 所有空均答对才为 true
+     */
+    fun judgeFill(userInputs: List<String>, q: Question, orderFree: Boolean = false): Boolean {
+        val correct = (q.answer ?: "").split(Regex("[|｜]"))
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+        val user = userInputs.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (correct.isEmpty() || user.isEmpty()) return false
+        if (correct.size != user.size) return false
+        if (orderFree && correct.size > 1) {
+            // 顺序无关：集合完全一致即可
+            return correct.sorted() == user.sorted()
+        }
+        return correct.indices.all { i -> correct[i] == user[i] }
+    }
+
+    /** 填空答案的空数（按 | 分隔，至少 1）。 */
+    fun fillSlotCount(q: Question): Int {
+        val parts = (q.answer ?: "").split(Regex("[|｜]"))
+            .map { it.trim() }.filter { it.isNotEmpty() }
+        return maxOf(parts.size, 1)
+    }
+
+    /**
+     * 填空多空逐空判对（用于提交后逐空标色）。
+     * 等价小程序 quiz/index.tsx 的 getFillSlotCorrectness。
+     */
+    fun fillSlotCorrectness(userSlots: List<String>, q: Question, orderFree: Boolean): List<Boolean> {
+        val correct = (q.answer ?: "").split(Regex("[|｜]"))
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+        val user = userSlots.map { it.trim().lowercase() }
+        if (correct.size != user.size) return user.map { false }
+        if (!orderFree || correct.size <= 1) {
+            return user.indices.map { i -> user[i] == correct[i] }
+        }
+        // 顺序无关：贪心匹配（先锁定位置相同，剩余空位从未用答案里认领）
+        val used = MutableList(correct.size) { false }
+        val result = MutableList(user.size) { false }
+        for (i in user.indices) {
+            if (user[i] == correct[i]) { result[i] = true; used[i] = true }
+        }
+        for (i in user.indices) {
+            if (result[i]) continue
+            val found = correct.indices.find { !used[it] && correct[it] == user[i] }
+            if (found != null) { result[i] = true; used[found] = true }
+        }
+        return result
     }
 }
