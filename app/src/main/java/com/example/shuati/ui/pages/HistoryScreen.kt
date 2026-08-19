@@ -59,7 +59,7 @@ fun HistoryScreen(navController: NavController) {
                     IconButton(onClick = {
                         navController.navigate(Routes.STATS)
                     }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                        Icon(Icons.Filled.BarChart, contentDescription = "统计")
                     }
                 }
             )

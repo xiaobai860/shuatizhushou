@@ -583,19 +583,29 @@ private fun buildQueue(
             ids.mapNotNull { id -> bank?.questions?.find { q -> q.id == id }?.let { QuizItem(bank.id, it) } }
         }
         else -> {
-            val bank = bankId?.let { repo.getBankById(it) }
-            var base = bank?.questions ?: emptyList()
-            if (filterUnanswered && bank != null) {
-                val answered = repo.getProgress(bank.id)?.answeredIds ?: emptyList()
-                base = base.filter { !answered.contains(it.id) }
+            // 首页「浏览模式」入口使用 bankId=__all__，聚合全部题库（保留真实题库 id 便于进度/错题归属）
+            val isAll = bankId == "__all__"
+            val bank = if (isAll) null else bankId?.let { repo.getBankById(it) }
+            var base = when {
+                bank != null -> bank.questions.map { QuizItem(bank.id, it) }
+                isAll -> repo.getBanks().flatMap { b -> b.questions.map { QuizItem(b.id, it) } }
+                else -> emptyList()
+            }
+            if (filterUnanswered && base.isNotEmpty()) {
+                val answered = if (isAll)
+                    (repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet())
+                else
+                    (repo.getProgress(bank!!.id)?.answeredIds ?: emptyList())
+                base = if (isAll) base.filter { "${it.bankId}::${it.q.id}" !in answered }
+                else base.filter { it.q.id !in answered }
             }
             // 浏览模式且题库允许乱序
             val ordered = when {
                 effectiveMode == "random" -> base.shuffled()
-                source == "browse" && bank?.questions?.any { it.orderFree } == true -> base.shuffled()
+                source == "browse" && !isAll && bank?.questions?.any { it.orderFree } == true -> base.shuffled()
                 else -> base
             }
-            ordered.map { QuizItem(bank?.id ?: "", it) }
+            ordered
         }
     }
 }

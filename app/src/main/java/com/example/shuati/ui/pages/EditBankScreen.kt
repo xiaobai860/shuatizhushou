@@ -111,9 +111,6 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
                     }
                 },
                 actions = {
-                    IconButton(onClick = { navController.navigate("settings") }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
-                    }
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "添加题目")
                     }
@@ -556,6 +553,7 @@ fun QuestionEditDialog(
     var qQuestion by remember(question) { mutableStateOf(question?.question ?: "") }
     var qAnswer by remember(question) { mutableStateOf<String?>(question?.answer) }
     var qAnalysis by remember(question) { mutableStateOf(question?.explanation ?: "") }
+    var qTags by remember(question) { mutableStateOf((question?.tags ?: emptyList()).joinToString(",")) }
     var qOrderFree by remember(question) { mutableStateOf(question?.orderFree ?: false) }
     var typeMenuOpen by remember { mutableStateOf(false) }
     var idError by remember { mutableStateOf<String?>(null) }
@@ -749,6 +747,15 @@ fun QuestionEditDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
+
+                // 标签
+                OutlinedTextField(
+                    value = qTags,
+                    onValueChange = { qTags = it },
+                    label = { Text("标签（可选，逗号分隔）") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
             }
         },
         confirmButton = {
@@ -765,6 +772,8 @@ fun QuestionEditDialog(
                         else -> qAnswer?.trim()
                     }
                     val orderFree = qType == QuestionType.fill && qOrderFree
+                    val tags = qTags.split(Regex("[,，、]"))
+                        .map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                     val newQuestion = question?.copy(
                         id = qId,
                         type = qType,
@@ -772,6 +781,7 @@ fun QuestionEditDialog(
                         answer = answer,
                         explanation = qAnalysis.trim().ifEmpty { null },
                         options = options.ifEmpty { null },
+                        tags = tags,
                         orderFree = orderFree,
                         idProblem = false,
                         incomplete = false
@@ -782,7 +792,7 @@ fun QuestionEditDialog(
                         answer = answer,
                         options = options.ifEmpty { null },
                         explanation = qAnalysis.trim().ifEmpty { null },
-                        tags = emptyList(),
+                        tags = tags,
                         orderFree = orderFree
                     )
                     onSave(newQuestion)
