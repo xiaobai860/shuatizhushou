@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.shuati"
         minSdk = 34
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.5"
+        versionCode = 9
+        versionName = "1.0.8"
         multiDexEnabled = true
         vectorDrawables {
             useSupportLibrary = true

@@ -1,5 +1,8 @@
 package com.example.shuati.ui
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -15,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavOptionsBuilder
@@ -39,6 +43,7 @@ fun AppNavHost() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val activity = LocalContext.current as? Activity
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0), // 避免与外层各页 TopAppBar 的状态栏 inset 叠加
@@ -168,6 +173,13 @@ fun AppNavHost() {
                     durationSec = backStack.arguments?.getInt("duration") ?: 0
                 )
             }
+        }
+
+        // 底部导航页（首页/学习/题库/我的）按返回键直接退出应用。
+        // 必须放在 NavHost 之后组合，返回拦截优先级才高于 NavHost 自带的 popBackStack 处理。
+        BackHandler(enabled = currentRoute in topLevelRoutes) {
+            Log.d("AppNavHost", "back pressed on top-level route $currentRoute, finish activity")
+            activity?.finish()
         }
     }
 }

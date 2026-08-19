@@ -172,7 +172,7 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                         Button(
                             onClick = { runDedup() },
                             modifier = Modifier.weight(1f),
-                            enabled = !isLoading
+                            enabled = !isLoading && (dedupMode == "cross" || selectedBankId != null)
                         ) {
                             if (isLoading) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
