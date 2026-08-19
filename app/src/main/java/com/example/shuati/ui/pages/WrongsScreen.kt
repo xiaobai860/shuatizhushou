@@ -119,7 +119,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TextButton(onClick = {
-                                    navController.navigate("${Routes.QUIZ}?bankId=${rec.bankId}&mode=sequence&source=bank")
+                                    navController.navigate("${Routes.QUIZ}?bankId=${rec.bankId}&mode=sequence&source=bank&questionIds=${rec.bankId}::${rec.questionId}")
                                 }) { Text("重做此题") }
                             }
                         }

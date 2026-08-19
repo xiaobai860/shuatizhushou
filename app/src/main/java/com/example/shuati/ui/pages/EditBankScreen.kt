@@ -26,7 +26,7 @@ const val ITEMS_PER_PAGE = 50
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditBankScreen(navController: NavController, bankId: String?) {
+fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId: String = "") {
     val repo = remember { AppRepository(navController.context) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -49,12 +49,34 @@ fun EditBankScreen(navController: NavController, bankId: String?) {
     val displayedQuestions = allQuestions.take(displayCount)
     val hasMore = displayCount < allQuestions.size
 
+    // 找到 editQuestionId 对应的索引
+    val editTargetIndex = remember(editQuestionId) {
+        allQuestions.indexOfFirst { it.id == editQuestionId }.takeIf { it >= 0 }
+    }
+
     // 编辑题目浮层
     var editingQuestion by remember { mutableStateOf<Question?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     // 删除确认
     var showDeleteConfirm by remember { mutableStateOf<Question?>(null) }
+
+    // 编辑后滚动到目标位置
+    LaunchedEffect(editingQuestion, editTargetIndex) {
+        if (editingQuestion != null && editTargetIndex != null) {
+            // 确保目标题目在当前可见范围内
+            if (editTargetIndex >= displayCount) {
+                displayCount = editTargetIndex + 1
+            }
+        }
+    }
+    // 自动打开编辑对话框
+    LaunchedEffect(editQuestionId) {
+        if (editQuestionId.isNotBlank()) {
+            val target = allQuestions.firstOrNull { it.id == editQuestionId }
+            if (target != null) editingQuestion = target
+        }
+    }
 
     Scaffold(
         topBar = {

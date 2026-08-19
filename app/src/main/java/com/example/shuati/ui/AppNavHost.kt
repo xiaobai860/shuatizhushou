@@ -31,20 +31,28 @@ fun AppNavHost() {
         composable(Routes.DEDUP) { DedupScreen(navController) }
 
         composable(
-            route = "${Routes.EDIT_BANK}?bankId={bankId}",
-            arguments = listOf(navArgument("bankId") { type = NavType.StringType; nullable = true; defaultValue = null })
+            route = "${Routes.EDIT_BANK}?bankId={bankId}&editQuestionId={editQuestionId}",
+            arguments = listOf(
+                navArgument("bankId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("editQuestionId") { type = NavType.StringType; defaultValue = "" }
+            )
         ) { backStack ->
-            EditBankScreen(navController, backStack.arguments?.getString("bankId"))
+            EditBankScreen(
+                navController,
+                backStack.arguments?.getString("bankId"),
+                editQuestionId = backStack.arguments?.getString("editQuestionId") ?: ""
+            )
         }
 
         composable(
-            route = "${Routes.QUIZ}?bankId={bankId}&mode={mode}&source={source}&planId={planId}&filterUnanswered={filterUnanswered}",
+            route = "${Routes.QUIZ}?bankId={bankId}&mode={mode}&source={source}&planId={planId}&filterUnanswered={filterUnanswered}&questionIds={questionIds}",
             arguments = listOf(
                 navArgument("bankId") { type = NavType.StringType; nullable = true },
                 navArgument("mode") { type = NavType.StringType; defaultValue = "sequence" },
                 navArgument("source") { type = NavType.StringType; defaultValue = "bank" },
                 navArgument("planId") { type = NavType.StringType; nullable = true },
-                navArgument("filterUnanswered") { type = NavType.BoolType; defaultValue = false }
+                navArgument("filterUnanswered") { type = NavType.BoolType; defaultValue = false },
+                navArgument("questionIds") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStack ->
             QuizScreen(
@@ -53,7 +61,8 @@ fun AppNavHost() {
                 mode = backStack.arguments?.getString("mode") ?: "sequence",
                 source = backStack.arguments?.getString("source") ?: "bank",
                 planId = backStack.arguments?.getString("planId"),
-                filterUnanswered = backStack.arguments?.getBoolean("filterUnanswered") ?: false
+                filterUnanswered = backStack.arguments?.getBoolean("filterUnanswered") ?: false,
+                questionIds = backStack.arguments?.getString("questionIds") ?: ""
             )
         }
 

@@ -45,8 +45,8 @@ fun RecommendScreen(navController: NavController) {
             if (recommended.isNotEmpty())
                 ExtendedFloatingActionButton(
                     onClick = {
-                        val first = recommended.first()
-                        navController.navigate("${Routes.QUIZ}?bankId=${first.bankId}&mode=sequence&source=bank")
+                        val ids = recommended.map { "${it.bankId}::${it.questionId}" }.joinToString(",")
+                        navController.navigate("${Routes.QUIZ}?bankId=${recommended[0].bankId}&mode=sequence&source=bank&questionIds=$ids")
                     },
                     icon = { Icon(Icons.Filled.PlayArrow, null) },
                     text = { Text("一键练习") }
@@ -84,7 +84,7 @@ fun RecommendScreen(navController: NavController) {
                     }
                     items(grpList, key = { it.questionId }) { rec ->
                         RecItem(rec, qMap, banks) {
-                            navController.navigate("${Routes.QUIZ}?bankId=${rec.bankId}&mode=sequence&source=bank")
+                            navController.navigate("${Routes.QUIZ}?bankId=${rec.bankId}&mode=sequence&source=bank&questionIds=${rec.bankId}::${rec.questionId}")
                         }
                     }
                 }

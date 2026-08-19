@@ -31,6 +31,16 @@ fun DedupScreen(navController: NavController) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // 查重模式：单题库 vs 跨题库
+    var dedupMode by remember { mutableStateOf("single") }
+    // 相似度阈值 (20-95%，存为 Int)
+    var threshold by remember { mutableStateOf(repo.getDedupThreshold().toInt()) }
+    // 当前选中的题库（单题库模式下）
+    var selectedBankId by remember { mutableStateOf<String?>(null) }
+    // 批量选择
+    var selectedGroupIdx by remember { mutableStateOf<Int?>(null) }
+    var selectedQIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     var isLoading by remember { mutableStateOf(false) }
     var duplicateGroups by remember { mutableStateOf<List<List<Pair<String, Question>>>>(emptyList()) }
     var statsText by remember { mutableStateOf("") }
@@ -41,19 +51,34 @@ fun DedupScreen(navController: NavController) {
     fun runDedup() {
         isLoading = true
         scope.launch {
-            val threshold = repo.getDedupThreshold()
-            val results = mutableListOf<List<Pair<String, Question>>>()
-            banks.forEach { bank ->
-                val groups = repo.findDuplicateGroups(bank, threshold)
-                groups.forEach { groupIds ->
-                    val groupQuestions = groupIds.mapNotNull { qid ->
-                        bank.questions.firstOrNull { it.id == qid }?.let { qid to it }
-                    }
-                    if (groupQuestions.size > 1) results.add(groupQuestions)
+            val results = when (dedupMode) {
+                "cross" -> {
+                    // 跨题库查重
+                    val groups = repo.findDuplicateGroupsAcrossBanks(banks, threshold / 100.0)
+                    groups.map { groupIds ->
+                        // groupIds: List<Pair<bankId, questionId>>
+                        groupIds.mapNotNull { (bid, qid) ->
+                            banks.find { b -> b.id == bid }?.questions?.firstOrNull { q -> q.id == qid }
+                                ?.let { bid to it }
+                        }
+                    }.filter { it.size > 1 }
+                }
+                else -> {
+                    // 单题库查重
+                    val bankId = selectedBankId ?: return@launch
+                    val bank = banks.find { b -> b.id == bankId }
+                    if (bank != null) {
+                        val groups = repo.findDuplicateGroups(bank, threshold.toDouble() / 100.0)
+                        groups.map { groupIds ->
+                            groupIds.mapNotNull { qid ->
+                                bank.questions.firstOrNull { it.id == qid }?.let { qid to it }
+                            }.filter { it.second != null }.map { it.first to it.second!! }
+                        }.filter { it.size > 1 }
+                    } else emptyList()
                 }
             }
             duplicateGroups = results
-            statsText = "发现 ${results.size} 组重复题目"
+            statsText = "发现 ${results.size} 组重复题目（阈值 ${threshold}%）"
             isLoading = false
         }
     }
@@ -88,6 +113,62 @@ fun DedupScreen(navController: NavController) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // 模式切换
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = dedupMode == "single",
+                            onClick = { dedupMode = "single" },
+                            label = { Text("单题库", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                        FilterChip(
+                            selected = dedupMode == "cross",
+                            onClick = { dedupMode = "cross" },
+                            label = { Text("跨题库", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Filled.AllInclusive, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                    }
+
+                    // 单题库模式：选择题库
+                    if (dedupMode == "single" && banks.size > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("选择题库：", fontSize = 13.sp)
+                            banks.forEach { bank ->
+                                FilterChip(
+                                    selected = selectedBankId == bank.id,
+                                    onClick = { selectedBankId = bank.id },
+                                    label = { Text(bank.name.take(8), fontSize = 11.sp) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // 相似度阈值滑块
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("相似度阈值：$threshold%", fontSize = 13.sp)
+                        Slider(
+                            value = threshold.toFloat(),
+                            onValueChange = { threshold = it.toInt() },
+                            valueRange = 20f..95f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // 操作按钮
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -109,15 +190,22 @@ fun DedupScreen(navController: NavController) {
                         OutlinedButton(
                             onClick = {
                                 scope.launch {
+                                    val totalDeleted = mutableListOf<String>()
                                     duplicateGroups.forEach { group ->
                                         if (group.size > 1) {
-                                            // 保留第一条（参考题），删除其他
+                                            // 删除非参考题
                                             val idsToDelete = group.drop(1).map { it.second.id }.toSet()
                                             val bankId = group[0].first
                                             repo.deleteQuestions(bankId, idsToDelete)
+                                            totalDeleted.addAll(idsToDelete)
                                         }
                                     }
-                                    snackbarHostState.showSnackbar("已清除重复题目")
+                                    // 同时清除相关的错题记录和收藏
+                                    totalDeleted.forEach { qid ->
+                                        repo.removeWrongRecordByQuestionId(qid)
+                                        repo.removeFavoriteByQuestionId(qid)
+                                    }
+                                    snackbarHostState.showSnackbar("已清除 ${totalDeleted.size} 条重复题目及关联记录")
                                     duplicateGroups = emptyList()
                                     statsText = ""
                                 }
@@ -153,7 +241,17 @@ fun DedupScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(displayedGroups, key = { it.first().second.id }) { group ->
-                        DuplicateGroupCard(group, banks, repo, scope, snackbarHostState)
+                        DuplicateGroupCard(
+                            group = group,
+                            banks = banks,
+                            repo = repo,
+                            scope = scope,
+                            snackbarHostState = snackbarHostState,
+                            isSelected = selectedGroupIdx != null,
+                            onToggleSelect = {
+                                selectedGroupIdx = if (selectedGroupIdx == displayedGroups.indexOf(group)) null else displayedGroups.indexOf(group)
+                            }
+                        )
                     }
 
                     if (!showAllGroups && duplicateGroups.size > 20) {
@@ -178,7 +276,9 @@ fun DuplicateGroupCard(
     banks: List<QuestionBank>,
     repo: AppRepository,
     scope: CoroutineScope,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit
 ) {
     val firstBankId = group[0].first
     val firstBankName = banks.find { b -> b.id == firstBankId }?.name ?: firstBankId
@@ -188,9 +288,15 @@ fun DuplicateGroupCard(
     val isMixedType = questionTypes.size > 1
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleSelect() },
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -202,24 +308,33 @@ fun DuplicateGroupCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "重复组 #$firstBankName",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    if (isMixedType) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(12.dp))
-                            Text(
-                                "题型混合（${questionTypes.joinToString(" / ") { getTypeLabel(it) }}）",
-                                fontSize = 11.sp,
-                                color = Color(0xFFFF9800)
-                            )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 选择指示器
+                    if (isSelected) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    }
+                    Column {
+                        Text(
+                            text = "重复组 #$firstBankName",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        if (isMixedType) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(12.dp))
+                                Text(
+                                    "题型混合（${questionTypes.joinToString(" / ") { getTypeLabel(it) }}）",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFF9800)
+                                )
+                            }
                         }
                     }
                 }
@@ -297,6 +412,8 @@ fun DuplicateGroupCard(
                             onClick = {
                                 scope.launch {
                                     repo.deleteQuestions(bankId, setOf(question.id))
+                                    repo.removeWrongRecordByQuestionId(question.id)
+                                    repo.removeFavoriteByQuestionId(question.id)
                                     snackbarHostState.showSnackbar("已删除")
                                 }
                             }

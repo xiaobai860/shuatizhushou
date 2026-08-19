@@ -233,7 +233,9 @@ private fun PlanCard(
                 val firstId = ids.getOrNull(startIdx)
                 if (firstId != null) {
                     val realMode = if (isStudy) plan.orderType else "browse"
-                    navController.navigate("${Routes.QUIZ}?bankId=${plan.bankId}&mode=$realMode&source=plan&planId=${plan.id}")
+                    // 剩余题目作为 questionIds（支持断点续练）
+                    val remainingIds = ids.subList(startIdx, ids.size).joinToString(",") { "$plan.bankId::$it" }
+                    navController.navigate("${Routes.QUIZ}?bankId=${plan.bankId}&mode=$realMode&source=plan&planId=${plan.id}&questionIds=$remainingIds")
                 }
             },
             modifier = Modifier.fillMaxWidth(),

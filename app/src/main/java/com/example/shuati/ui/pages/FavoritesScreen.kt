@@ -184,7 +184,7 @@ fun FavoriteCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                navController.navigate("${Routes.EDIT_BANK}?bankId=${record.bankId}")
+                navController.navigate("${Routes.EDIT_BANK}?bankId=${record.bankId}&editQuestionId=${record.questionId}")
             },
         shape = RoundedCornerShape(12.dp)
     ) {

@@ -94,7 +94,7 @@ fun SearchScreen(navController: NavController) {
                     item { Text("找到 ${results.size} 道题目", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     items(results) { (bank, q) ->
                         CardBox(onClick = {
-                            navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank")
+                            navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&questionIds=${bank.id}::${q.id}")
                         }) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                                 Column(Modifier.weight(1f)) {

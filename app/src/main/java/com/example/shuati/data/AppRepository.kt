@@ -155,6 +155,10 @@ class AppRepository(private val context: Context) {
     }
     fun removeFavorite(bankId: String, questionId: String) =
         writeList(FAVORITES_KEY, getFavoriteRecords().filter { !(it.bankId == bankId && it.questionId == questionId) })
+    fun removeFavoriteByQuestionId(questionId: String) =
+        writeList(FAVORITES_KEY, getFavoriteRecords().filter { it.questionId != questionId })
+    fun removeWrongRecordByQuestionId(questionId: String) =
+        writeList(WRONGS_KEY, getWrongRecords().filter { it.questionId != questionId })
 
     // ─── 掌握度 streak ───────────────────────────────────────────
     fun getMasteryTarget(): Int {

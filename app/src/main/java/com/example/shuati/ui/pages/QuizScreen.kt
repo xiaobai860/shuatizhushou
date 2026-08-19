@@ -46,14 +46,30 @@ fun QuizScreen(
     mode: String,
     source: String,
     planId: String?,
-    filterUnanswered: Boolean = false
+    filterUnanswered: Boolean = false,
+    questionIds: String = ""
 ) {
     val repo = repository()
     val isBrowse = mode == "browse"
 
+    // 解析 questionIds 参数：逗号分隔的题库ID列表，格式为 "bankId::questionId,bankId::questionId,..."
+    val specifiedQuestions = remember(questionIds, repo) {
+        if (questionIds.isBlank()) emptyList<Pair<String, com.example.shuati.model.Question>>()
+        else {
+            val banks = repo.getBanks()
+            val qMap = HashMap<String, com.example.shuati.model.Question>()
+            banks.forEach { b -> b.questions.forEach { q -> qMap["${b.id}::${q.id}"] = q } }
+            questionIds.split(",").mapNotNull { entry ->
+                val q = qMap[entry.trim()] ?: return@mapNotNull null
+                val bid = entry.split("::")[0]
+                bid to q
+            }
+        }
+    }
+
     // 计算本次作答序列（含真实 bankId）
-    val queue = remember(bankId, mode, source, planId, filterUnanswered) {
-        buildQueue(repo, bankId, mode, source, planId, filterUnanswered)
+    val queue = remember(bankId, mode, source, planId, filterUnanswered, specifiedQuestions) {
+        buildQueue(repo, bankId, mode, source, planId, filterUnanswered, specifiedQuestions)
     }
 
     var index by remember { mutableStateOf(0) }
@@ -422,9 +438,18 @@ private fun buildQueue(
     mode: String,
     source: String,
     planId: String?,
-    filterUnanswered: Boolean
+    filterUnanswered: Boolean,
+    specifiedQuestions: List<Pair<String, com.example.shuati.model.Question>> = emptyList()
 ): List<QuizItem> {
     val effectiveMode = if (source == "all" || source == "browse") "sequence" else mode
+    // 优先使用指定的题目列表（来自 questionIds 参数）
+    if (specifiedQuestions.isNotEmpty()) {
+        val ordered = when (effectiveMode) {
+            "random" -> specifiedQuestions.shuffled()
+            else -> specifiedQuestions
+        }
+        return ordered.map { (bid, q) -> QuizItem(bid, q) }
+    }
     return when (source) {
         "wrong" -> repo.getWrongRecords().mapNotNull { rec ->
             rec.question?.let { QuizItem(rec.bankId, it) }
