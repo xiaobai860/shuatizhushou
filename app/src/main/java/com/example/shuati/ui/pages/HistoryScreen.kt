@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
+import com.example.shuati.ui.repository
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.model.QuizHistory
 import com.example.shuati.ui.Routes
@@ -28,7 +29,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(navController: NavController) {
-    val repo = remember { AppRepository(navController.context) }
+    val repo = repository()
     var history by remember { mutableStateOf(repo.getHistoryRecords()) }
     val banks = remember { repo.getBanks() }
     var showClearDialog by remember { mutableStateOf(false) }

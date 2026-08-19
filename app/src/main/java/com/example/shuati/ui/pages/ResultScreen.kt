@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
+import com.example.shuati.ui.repository
 import com.example.shuati.ui.Routes
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,7 +37,7 @@ fun ResultScreen(
     total: Int,
     durationSec: Int,
 ) {
-    val repo = remember { AppRepository(navController.context) }
+    val repo = repository()
     val isBrowse = mode == "browse"
 
     // 计算正确率

@@ -14,14 +14,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import java.util.UUID
 
+/** 全局唯一 DataStore（顶层委托保证单例，避免多实例指向同一文件触发崩溃） */
+private val Context.dataStore by preferencesDataStore(name = "shuati_store")
+
 /**
  * 全局数据仓库，等价复刻小程序 utils/storage.ts 的同步存储语义。
  * 底层用 DataStore(Preferences) 以 JSON 字符串持久化；对外提供同步/挂起双接口，
  * 以匹配原小程序「同步读写」的使用习惯（页面内用 runBlocking 读取，写入用 edit）。
  */
 class AppRepository(private val context: Context) {
-
-    private val Context.dataStore by preferencesDataStore(name = "shuati_store")
 
     private val json = Json {
         ignoreUnknownKeys = true

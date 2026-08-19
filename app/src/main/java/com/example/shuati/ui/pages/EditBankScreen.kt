@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
+import com.example.shuati.ui.repository
 import com.example.shuati.logic.Scoring
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
@@ -31,7 +32,7 @@ const val ITEMS_PER_PAGE = 50
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId: String = "") {
-    val repo = remember { AppRepository(navController.context) }
+    val repo = repository()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 

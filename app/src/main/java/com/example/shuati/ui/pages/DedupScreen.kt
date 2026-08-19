@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
+import com.example.shuati.ui.repository
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +27,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DedupScreen(navController: NavController, initialBankId: String? = null) {
-    val repo = remember { AppRepository(navController.context) }
+    val repo = repository()
     val banks = remember { repo.getBanks() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
