@@ -1,17 +1,21 @@
 package com.example.shuati.ui.pages
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,12 +42,15 @@ fun StudyPlanScreen(navController: NavController) {
     var plans by remember { mutableStateOf(emptyList<StudyPlan>()) }
     var showCreate by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<StudyPlan?>(null) }
+    var showDeleteDialog by remember { mutableStateOf<StudyPlan?>(null) }
 
     fun reload() { plans = repo.getStudyPlans() }
     LaunchedEffect(Unit) { reload() }
 
     val active = plans.filter { !it.archived }
     val archived = plans.filter { it.archived }
+    val invalidPlans = active.filter { repo.getBankById(it.bankId) == null }
+    val validPlans = active.filter { repo.getBankById(it.bankId) != null }
 
     Scaffold(
         topBar = { ScreenTopBar("学习计划", onBack = { navController.popBackStack() }) },
@@ -54,16 +61,39 @@ fun StudyPlanScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            if (active.isEmpty() && archived.isEmpty()) {
+            if (invalidPlans.isNotEmpty()) {
+                item {
+                    CardBox {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("已失效（关联题库已被删除）", fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = {
+                                invalidPlans.forEach { repo.deleteStudyPlan(it.id) }
+                                reload()
+                            }) {
+                                Text("一键清除", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        invalidPlans.forEach { plan ->
+                            Text("${plan.title}（${plan.bankName} 已不存在）",
+                                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            if (validPlans.isEmpty() && archived.isEmpty() && invalidPlans.isEmpty()) {
                 item { EmptyState("还没有学习计划，点右下角创建一个") }
             }
-            if (active.isNotEmpty()) {
+            if (validPlans.isNotEmpty()) {
                 item { Text("进行中", fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
-                items(active) { plan ->
+                items(validPlans) { plan ->
                     PlanCard(
                         plan, repo, navController,
                         onArchive = { repo.archiveStudyPlan(plan.id); reload() },
-                        onEdit = { editing = plan }
+                        onEdit = { editing = plan },
+                        onDelete = { showDeleteDialog = plan }
                     )
                 }
             }
@@ -74,6 +104,7 @@ fun StudyPlanScreen(navController: NavController) {
                         plan, repo, navController,
                         onArchive = { repo.unarchiveStudyPlan(plan.id); reload() },
                         onEdit = { editing = plan },
+                        onDelete = { showDeleteDialog = plan },
                         archived = true
                     )
                 }
@@ -95,6 +126,21 @@ fun StudyPlanScreen(navController: NavController) {
             onSaved = { editing = null; reload() }
         )
     }
+    showDeleteDialog?.let { plan ->
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = null },
+            title = { Text("删除计划") },
+            text = { Text("确定要删除「${plan.title}」吗？此操作不可恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    repo.deleteStudyPlan(plan.id)
+                    showDeleteDialog = null
+                    reload()
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
@@ -104,12 +150,14 @@ private fun PlanCard(
     navController: NavController,
     onArchive: () -> Unit,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
     archived: Boolean = false
 ) {
     val pp = remember(plan.id) { repo.getPlanProgress(plan.id) }
     val today = dateFmt.format(Date())
     val isStudy = plan.mode == "study"
     val isExpired = plan.endDate != null && today > plan.endDate
+    val bankExists = repo.getBankById(plan.bankId) != null
 
     val todayStarted = pp?.sessionDate == today && pp.sessionQuestionIds.isNotEmpty()
     val sessionDone = pp?.sessionQuestionIds?.let { it.size > 0 && (pp.sessionAnsweredCount >= it.size || pp.sessionBrowseIndex >= it.size) } ?: false
@@ -119,18 +167,36 @@ private fun PlanCard(
     val answeredTotal = pp?.answeredIds?.size ?: 0
     val roundNo = if (plan.dailyCount * plan.cycleDays > 0)
         (answeredTotal / (plan.dailyCount * plan.cycleDays)) + 1 else 1
+    // 预计完成日期
+    val daysToFinish = if (plan.dailyCount > 0) ceil(plan.totalQuestions.toDouble() / plan.dailyCount).toInt() else 0
+    val estFinishDate = if (daysToFinish > 0) {
+        val cal = Calendar.getInstance().apply { time = dateFmt.parse(plan.startDate) ?: Date() }
+        cal.add(Calendar.DAY_OF_YEAR, daysToFinish)
+        dateFmt.format(cal.time)
+    } else null
+    // 今日进度
+    val todayProgress = if (isStudy) pp?.sessionAnsweredCount ?: 0
+    else pp?.sessionBrowseIndex ?: 0
+    val todayTotal = plan.dailyCount
+    val progressText = if (!bankExists) "题库已删除"
+    else if (answeredTotal > 0) "已完成 $answeredTotal / ${plan.totalQuestions} 题"
+    else "每日 ${plan.dailyCount} 题"
 
     CardBox {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(plan.title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
                 Spacer(Modifier.height(4.dp))
-                Text("${plan.bankName} · ${if (isStudy) "练习模式" else "浏览模式"} · ${if (plan.orderType == "random") "随机" else "顺序"}",
+                Text(if (bankExists) "${plan.bankName}" else "⚠ ${plan.bankName}（已删除）",
+                    fontSize = 13.sp, color = if (bankExists) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                Text("${if (isStudy) "练习" else "浏览"}模式 · ${if (plan.orderType == "random") "随机" else "顺序"}",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("每日 ${plan.dailyCount} 题" +
-                        (if (plan.dailyTargetCeiling > 0) "（上限 ${plan.dailyTargetCeiling}）" else "") +
-                        " · 每轮 ${plan.cycleDays} 天 · 第 $roundNo/$totalRounds 轮",
+                Text(progressText + " · 每轮 ${plan.cycleDays} 天 · 第 $roundNo/$totalRounds 轮",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (estFinishDate != null) {
+                    Text("预计完成：$estFinishDate",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                }
                 Text("开始 $today · 截止 ${plan.endDate ?: "不限"}",
                     fontSize = 13.sp, color = if (isExpired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 if (punchedToday) {
@@ -147,16 +213,18 @@ private fun PlanCard(
             }
             IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, null) }
             IconButton(onClick = onArchive) { Icon(Icons.Filled.Archive, null) }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
+            }
         }
 
         Spacer(Modifier.height(10.dp))
-        // 28 天打卡日历（每轮 cycleDays 天，展示 4 轮 × cycleDays）
         PunchCalendar(plan, pp, today)
         Spacer(Modifier.height(10.dp))
 
         Button(
             onClick = {
-                if (isExpired) return@Button
+                if (isExpired || !bankExists) return@Button
                 val ids = buildSessionIds(repo, plan)
                 if (pp == null || pp.sessionDate != today) {
                     repo.initPlanSession(plan.id, ids, today, pp?.answeredIds ?: emptyList())
@@ -169,11 +237,12 @@ private fun PlanCard(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !archived && !isExpired
+            enabled = !archived && !isExpired && bankExists
         ) {
             Icon(Icons.Filled.PlayArrow, null)
             Spacer(Modifier.width(8.dp))
             Text(when {
+                !bankExists -> "题库已删除"
                 isExpired -> "计划已过期"
                 !todayStarted -> "开始今日任务"
                 sessionDone -> "今日已完成（重做）"
@@ -187,8 +256,6 @@ private fun PlanCard(
 private fun PunchCalendar(plan: StudyPlan, pp: com.example.shuati.model.PlanProgress?, today: String) {
     val cols = plan.cycleDays.coerceAtLeast(1)
     val rows = 4
-    val totalCells = cols * rows
-    // 计算当前轮起始日（基于 startDate 与 cycleDays）
     val startCal = Calendar.getInstance().apply { time = dateFmt.parse(plan.startDate) ?: Date() }
     val todayCal = Calendar.getInstance().apply { time = dateFmt.parse(today) ?: Date() }
     val daysBetween = ((todayCal.timeInMillis - startCal.timeInMillis) / 86400000L).toInt()
@@ -255,7 +322,7 @@ private fun PlanEditDialog(
 ) {
     val banks = remember { repo.getBanks() }
     var title by remember { mutableStateOf(initial?.title ?: "") }
-    var selectedBankId by remember { mutableStateOf(initial?.bankId ?: banks.firstOrNull()?.id ?: "") }
+    var selectedBankId by remember { mutableStateOf(initial?.bankId ?: "") }
     var dailyCount by remember { mutableStateOf((initial?.dailyCount ?: 10).toString()) }
     var cycleDays by remember { mutableStateOf((initial?.cycleDays ?: 7).toString()) }
     var dailyTargetCeiling by remember { mutableStateOf((initial?.dailyTargetCeiling ?: 0).toString()) }
@@ -269,18 +336,29 @@ private fun PlanEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "创建学习计划" else "编辑学习计划") },
         text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+            Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(title, { title = it }, label = { Text("计划名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                ExposedDropdownMenuBox(bankExpanded, { bankExpanded = !bankExpanded }) {
-                    OutlinedTextField(
-                        banks.find { it.id == selectedBankId }?.name ?: "选择题库", {},
-                        readOnly = true, modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankExpanded) }
-                    )
-                    ExposedDropdownMenu(bankExpanded, { bankExpanded = false }) {
-                        banks.forEach { b ->
-                            DropdownMenuItem(text = { Text(b.name) }, onClick = { selectedBankId = b.id; bankExpanded = false })
+                // 全部题库选项
+                FilterChip(
+                    selected = selectedBankId.isEmpty(),
+                    onClick = { selectedBankId = "" },
+                    label = { Text("全部题库") },
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                if (banks.isNotEmpty()) {
+                    ExposedDropdownMenuBox(bankExpanded, { bankExpanded = !bankExpanded }) {
+                        OutlinedTextField(
+                            if (selectedBankId.isEmpty()) "全部题库" else (banks.find { it.id == selectedBankId }?.name ?: "选择题库"),
+                            {}, readOnly = true,
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankExpanded) }
+                        )
+                        ExposedDropdownMenu(bankExpanded, { bankExpanded = false }) {
+                            banks.forEach { b ->
+                                DropdownMenuItem(text = { Text(b.name) },
+                                    onClick = { selectedBankId = b.id; bankExpanded = false })
+                            }
                         }
                     }
                 }
@@ -312,8 +390,9 @@ private fun PlanEditDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val bank = repo.getBankById(selectedBankId)
-                if (bank != null && title.isNotBlank()) {
+                if (selectedBankId.isEmpty() && banks.isNotEmpty()) {
+                    // 全部题库：用第一个可用题库作为占位
+                    val bank = banks.first()
                     val plan = StudyPlan(
                         id = initial?.id ?: UUID.randomUUID().toString(),
                         title = title.trim(),
@@ -327,13 +406,37 @@ private fun PlanEditDialog(
                         endDate = endDate.ifBlank { null },
                         cycleDays = cycleDays.toIntOrNull() ?: 7,
                         dailyTargetCeiling = dailyTargetCeiling.toIntOrNull() ?: 0,
-                        isAllBanks = initial?.isAllBanks ?: false,
+                        isAllBanks = true,
                         enabled = initial?.enabled ?: true,
                         archived = initial?.archived ?: false,
                         createdAt = initial?.createdAt ?: System.currentTimeMillis()
                     )
                     repo.saveStudyPlan(plan)
                     onSaved()
+                } else {
+                    val bank = repo.getBankById(selectedBankId)
+                    if (bank != null && title.isNotBlank()) {
+                        val plan = StudyPlan(
+                            id = initial?.id ?: UUID.randomUUID().toString(),
+                            title = title.trim(),
+                            bankId = bank.id,
+                            bankName = bank.name,
+                            totalQuestions = bank.questions.size,
+                            dailyCount = dailyCount.toIntOrNull() ?: 10,
+                            mode = mode,
+                            orderType = orderType,
+                            startDate = startDate,
+                            endDate = endDate.ifBlank { null },
+                            cycleDays = cycleDays.toIntOrNull() ?: 7,
+                            dailyTargetCeiling = dailyTargetCeiling.toIntOrNull() ?: 0,
+                            isAllBanks = false,
+                            enabled = initial?.enabled ?: true,
+                            archived = initial?.archived ?: false,
+                            createdAt = initial?.createdAt ?: System.currentTimeMillis()
+                        )
+                        repo.saveStudyPlan(plan)
+                        onSaved()
+                    }
                 }
             }) { Text(if (initial == null) "创建" else "保存") }
         },

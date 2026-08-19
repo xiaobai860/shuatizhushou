@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,18 +83,18 @@ fun typeLabel(type: com.example.shuati.model.QuestionType): String = when (type)
     com.example.shuati.model.QuestionType.essay -> "简答"
 }
 
-/** 简单文本标签 Chip */
+/** 简单文本标签 Chip，可选自定义颜色 */
 @Composable
-fun TagChip(text: String) {
+fun TagChip(text: String, containerColor: Color? = null, labelColor: Color? = null) {
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
+        color = containerColor ?: MaterialTheme.colorScheme.primaryContainer,
         shape = RoundedCornerShape(8.dp)
     ) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
+            color = labelColor ?: MaterialTheme.colorScheme.onPrimaryContainer
         )
     }
 }

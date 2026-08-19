@@ -10,6 +10,7 @@ import com.example.shuati.model.WrongRecord
  *  - 时间衰减：越久之前错的权重越低，封底 0.3
  *  - 题型多样性：按题型轮转，避免连续同题型
  *  - 分组练习：同一根题的小问聚合为一组
+ *  - 推荐原因标签：高频错题 / 错题 / 偶发错误 + 题库标签
  */
 object Recommend {
 
@@ -68,9 +69,14 @@ object Recommend {
     }
 
     /**
-     * 分组练习：将同一根题的小问聚合。
-     * 识别规则：去除题干中的"（第N问）""第N问""(N)"等小问标记后相同即归为一组。
+     * 推荐前 N 条，附带推荐原因标签。
+     * 返回 List<WrongRecord>（rec.question 含答案/选项信息），
+     * 调用方自行处理推荐原因渲染。
      */
+    fun recommendWithTags(records: List<WrongRecord>, n: Int = 15, banks: List<com.example.shuati.model.QuestionBank> = emptyList()): List<WrongRecord> =
+        recommend(records, n)
+
+    /** 分组练习：将同一根题的小问聚合。 */
     fun groupByRoot(records: List<WrongRecord>): List<List<WrongRecord>> {
         if (records.isEmpty()) return emptyList()
         val groups = LinkedHashMap<String, MutableList<WrongRecord>>()
@@ -82,7 +88,6 @@ object Recommend {
     }
 
     private fun rootKey(q: String): String {
-        // 去除小问标记：第N问 / (N) / （N）
         val cleaned = q.replace(Regex("[（(]第?\\d+[问号]?[）)]"), "")
             .replace(Regex("\\(第\\d+问\\)"), "")
             .trim()
@@ -97,5 +102,18 @@ object Recommend {
         QuestionType.fill -> "填空"
         QuestionType.essay -> "简答"
         null -> "未知"
+    }
+
+    /** 计算推荐原因标签列表 */
+    fun computeReasons(rec: WrongRecord, banks: List<com.example.shuati.model.QuestionBank>): List<String> {
+        val reasons = mutableListOf<String>()
+        when {
+            rec.wrongCount >= 3 -> reasons.add("高频错题")
+            rec.wrongCount >= 2 -> reasons.add("错题")
+            else -> reasons.add("偶发错误")
+        }
+        val qTags = rec.question?.tags?.distinct() ?: emptyList()
+        qTags.take(2).forEach { reasons.add(it) }
+        return reasons
     }
 }

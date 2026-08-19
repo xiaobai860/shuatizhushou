@@ -1,15 +1,14 @@
 package com.example.shuati.ui.pages
 
 import android.content.Context
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -31,6 +29,9 @@ import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
 import kotlinx.coroutines.launch
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +41,7 @@ fun LibraryScreen(navController: NavController) {
     var banks by remember { mutableStateOf(emptyList<QuestionBank>()) }
     var searchKeyword by remember { mutableStateOf("") }
     var showDelete by remember { mutableStateOf<QuestionBank?>(null) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val context = LocalContext.current
 
     fun loadBanks() {
@@ -57,13 +59,33 @@ fun LibraryScreen(navController: NavController) {
 
     Scaffold(
         topBar = {
-            ScreenTopBar("题库管理", actions = {
-                TextButton(onClick = { navController.navigate(Routes.IMPORT) }) { Text("导入") }
-            })
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (selectedIds.isEmpty()) {
+                    ScreenTopBar("题库管理", actions = {
+                        TextButton(onClick = { navController.navigate(Routes.IMPORT) }) { Text("导入") }
+                    })
+                } else {
+                    Text(
+                        "${selectedIds.size} 已选",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { selectedIds = emptySet() }) {
+                        Text("取消", color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { navController.navigate(Routes.EDIT_BANK) }) {
-                Icon(Icons.Filled.Add, contentDescription = "新增")
+            if (selectedIds.isEmpty()) {
+                FloatingActionButton(onClick = { navController.navigate(Routes.EDIT_BANK) }) {
+                    Icon(Icons.Filled.Add, contentDescription = "新增")
+                }
             }
         }
     ) { padding ->
@@ -74,12 +96,41 @@ fun LibraryScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 placeholder = { Text("搜索题库 / 题目") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = if (searchKeyword.isNotEmpty()) {
                     { IconButton(onClick = { searchKeyword = "" }) { Icon(Icons.Filled.Clear, contentDescription = "清除") } }
                 } else null
             )
+            if (selectedIds.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = {
+                        selectedIds.forEach { id -> scope.launch { repo.deleteBank(id) } }
+                        loadBanks()
+                        selectedIds = emptySet()
+                    }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("删除")
+                    }
+                    if (selectedIds.size > 1) {
+                        val batchIds = selectedIds.toList()
+                        Button(onClick = {
+                            val firstBank = banks.find { it.id == batchIds.first() }
+                            if (firstBank != null) {
+                                navController.navigate("${Routes.QUIZ}?bankId=${firstBank.id}&mode=sequence&source=all")
+                            }
+                        }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("批量刷 ${batchIds.size} 个题库")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -89,61 +140,79 @@ fun LibraryScreen(navController: NavController) {
                     item { EmptyState(if (banks.isEmpty()) "还没有题库，点右下角 + 导入" else "没有匹配的题库") }
                 }
                 items(filtered) { bank ->
+                    val isSelected = selectedIds.contains(bank.id)
                     val progress = repo.getProgress(bank.id)
                     val completed = progress?.everCompleted ?: false
                     val wrongCount = repo.getWrongRecords().count { it.bankId == bank.id }
-                    // 计算进度百分比（该题库最高 streak / 目标连对）
                     val target = repo.getMasteryTarget()
                     val bankQuestions = bank.questions.map { it.id }.toSet()
                     val maxStreak = repo.getMasteryStreaks()
                         .filterKeys { it.startsWith("${bank.id}::") }
                         .values.maxOrNull() ?: 0
                     val pct = if (target > 0) (maxStreak.toFloat() / target).coerceIn(0f, 1f) else 0f
-                    // 重复题数
                     val dupGroups = repo.findDuplicateGroups(bank, repo.getDedupThreshold())
                     val dupCount = dupGroups.sumOf { it.size } - dupGroups.size
-                    CardBox(onClick = { navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}") }) {
-                        Box(Modifier.fillMaxWidth()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+
+                    CardBox(
+                        onClick = {
+                            if (selectedIds.isEmpty()) {
+                                navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}")
+                            } else {
+                                selectedIds = if (isSelected) selectedIds - bank.id else selectedIds + bank.id
+                            }
+                        },
+                        modifier = Modifier.then(if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (selectedIds.isNotEmpty()) {
+                                RadioButton(selected = isSelected, onClick = {
+                                    selectedIds = if (isSelected) selectedIds - bank.id else selectedIds + bank.id
+                                })
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text("${bank.questions.size} 题" + if (wrongCount > 0) " · $wrongCount 错题" else "",
+                                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (completed) {
                                     Spacer(Modifier.height(4.dp))
-                                    Text("${bank.questions.size} 题" + if (wrongCount > 0) " · $wrongCount 错题" else "",
-                                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (completed) {
-                                        Spacer(Modifier.height(4.dp))
-                                        AssistChip(
-                                            onClick = {},
-                                            label = { Text("已刷完 100%") },
-                                            leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
-                                            colors = AssistChipDefaults.assistChipColors(
-                                                containerColor = MaterialTheme.colorScheme.primaryContainer
-                                            )
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text("已刷完 100%") },
+                                        leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer
                                         )
-                                    }
-                                    // 进度条（仅显示非完成状态时的进度）
-                                    if (!completed && bank.questions.isNotEmpty()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        LinearProgressIndicator(
-                                            progress = { pct },
-                                            modifier = Modifier.fillMaxWidth().height(4.dp)
-                                                .clip(MaterialTheme.shapes.small),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                        )
-                                        Text("${(pct * 100).toInt()}% 掌握进度",
-                                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+                                    )
                                 }
-                                if (dupCount > 0) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Badge(
-                                        containerColor = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp)
-                                    ) {
-                                        Text(dupCount.toString(), fontSize = 10.sp, color = Color.White)
-                                    }
+                                if (!completed && bank.questions.isNotEmpty()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    LinearProgressIndicator(
+                                        progress = { pct },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp)
+                                            .clip(MaterialTheme.shapes.small),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    Text("${(pct * 100).toInt()}% 掌握进度",
+                                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            }
+                            if (dupCount > 0) {
+                                Spacer(Modifier.width(8.dp))
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Text(dupCount.toString(), fontSize = 10.sp, color = Color.White)
+                                }
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            // 删除按钮
+                            IconButton(onClick = { showDelete = bank }) {
+                                Icon(Icons.Filled.DeleteOutline, contentDescription = "删除题库",
+                                    tint = MaterialTheme.colorScheme.error)
                             }
                         }
                         Spacer(Modifier.height(10.dp))
@@ -177,7 +246,7 @@ fun LibraryScreen(navController: NavController) {
         AlertDialog(
             onDismissRequest = { showDelete = null },
             title = { Text("删除题库") },
-            text = { Text("确定要删除「$bank」吗？\n此操作不可恢复。") },
+            text = { Text("确定要删除「${bank.name}」吗？\n此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {

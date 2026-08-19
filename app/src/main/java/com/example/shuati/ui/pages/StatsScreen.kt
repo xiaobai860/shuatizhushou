@@ -1,15 +1,20 @@
 package com.example.shuati.ui.pages
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21,6 +26,8 @@ import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
 import java.text.SimpleDateFormat
 import java.util.*
+
+private val fmtDay = SimpleDateFormat("MM-dd", Locale.getDefault())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,50 +41,87 @@ fun StatsScreen(navController: NavController) {
     val totalQuestions = banks.sumOf { it.questions.size }
     val totalAnswered = history.sumOf { it.total }
     val totalCorrect = history.sumOf { it.correct }
+    val totalTimeSec = history.sumOf { it.durationSec ?: 0 }
     val overallAcc = if (totalAnswered > 0) (totalCorrect * 100 / totalAnswered) else 0
 
-    // 最近 7 天：按 finishedAt 分桶（使用 accuracy 字段，无则回退 createdAt/手算）
-    val fmtDay = SimpleDateFormat("MM-dd", Locale.getDefault())
-    val cal = Calendar.getInstance()
-    val last7 = (0..6).map { i ->
-        cal.add(Calendar.DAY_OF_MONTH, if (i == 0) 0 else -1)
-        fmtDay.format(cal.time)
-    }.reversed().toMutableList().also { cal.add(Calendar.DAY_OF_MONTH, 6) }
-
-    val daily = last7.map { day ->
-        val records = history.filter {
-            val ts = if (it.finishedAt > 0) it.finishedAt else it.createdAt
-            ts > 0 && fmtDay.format(Date(ts)) == day
-        }
-        val t = records.sumOf { it.total }
-        val c = records.sumOf { it.correct }
-        val acc = if (t > 0) records.mapNotNull { if (it.accuracy > 0) it.accuracy else null }
-            .let { accs -> if (accs.isNotEmpty()) accs.average().toInt() else (c * 100 / t) } else null
-        day to (t to acc)
+    // 唯一题库列表（排除 __all__）
+    val bankList = remember(history) {
+        val map = mutableMapOf<String, String>()
+        history.forEach { if (it.bankId != "__all__") map[it.bankId] = it.bankName }
+        listOf("all" to "全部题库") + map.entries.map { (id, name) -> id to name }
     }
 
-    // 按题库正确率
-    val byBank = history.groupBy { it.bankId }
+    var selectedBankId by remember { mutableStateOf("all") }
+    val filtered = remember(history, selectedBankId) {
+        if (selectedBankId == "all") history
+        else history.filter { it.bankId == selectedBankId }
+    }
 
-    // 按题型正确率（遍历题库题目 + 历史模式）
+    // 核心统计
+    val totalSessions = filtered.size
+    val totalCorrectFiltered = filtered.sumOf { it.correct }
+    val totalAnsweredFiltered = filtered.sumOf { it.total }
+    val totalTimeFiltered = filtered.sumOf { it.durationSec ?: 0 }
+    val avgAccuracy = if (totalSessions > 0)
+        (filtered.sumOf { it.accuracy } / totalSessions) else 0
+    val bestAccuracy = if (filtered.isNotEmpty())
+        filtered.maxOfOrNull { it.accuracy } ?: 0 else 0
+    val overallAccFiltered = if (totalAnsweredFiltered > 0)
+        (totalCorrectFiltered * 100 / totalAnsweredFiltered) else 0
+    val avgTimePerQ = if (totalAnsweredFiltered > 0) totalTimeFiltered / totalAnsweredFiltered else 0
+
+    // 最近7次正确率趋势
+    val recent7 = filtered.takeLast(7).reversed()
+    val maxTrendAcc = recent7.maxOfOrNull { it.accuracy } ?: 1
+
+    // 正确率分布（4 区间）
+    data class AccBandDef(val label: String, val min: Int, val max: Int, val color: Color)
+    val accBandDefs = listOf(
+        AccBandDef("90%+", 90, 100, MaterialTheme.colorScheme.primary),
+        AccBandDef("70~89%", 70, 89, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+        AccBandDef("50~69%", 50, 69, MaterialTheme.colorScheme.tertiary),
+        AccBandDef("<50%", 0, 49, MaterialTheme.colorScheme.error)
+    )
+    data class AccBand(val label: String, val min: Int, val max: Int, val color: Color, var count: Int = 0)
+    val accBands = accBandDefs.map { d ->
+        AccBand(d.label, d.min, d.max, d.color, filtered.count { it.accuracy in d.min..d.max })
+    }
+    val maxBandCount = accBands.maxOfOrNull { it.count } ?: 1
+
+    // 刷题模式分布
+    val modeLabels = mapOf(
+        "sequential" to "顺序",
+        "random" to "随机",
+        "browse" to "浏览",
+        "continue" to "续刷",
+        "wrong" to "错题练习"
+    )
+    val modeCounts = filtered
+        .mapNotNull { it.mode }
+        .groupingBy { it }
+        .eachCount()
+        .toList()
+        .sortedByDescending { (_, c) -> c }
+
+    // 按题库正确率
+    val byBank = filtered.groupBy { it.bankId }
+
+    // 按题型正确率
     val typeAcc = QuestionType.entries.map { type ->
         val typeBanks = banks.map { b -> b.id to b.questions.filter { q -> q.type == type } }.toMap()
         val totalType = typeBanks.values.sumOf { it.size }
         type to totalType
     }.filter { it.second > 0 }
 
-    // 按答题模式分布（从 history 中统计 mode 字段）
-    val modeLabels = mapOf(
-        "sequential" to "顺序",
-        "random" to "随机",
-        "browse" to "浏览"
-    )
-    val modeCounts = history
-        .mapNotNull { it.mode }
-        .groupingBy { it }
-        .eachCount()
-        .toList()
-        .sortedByDescending { (_, c) -> c }
+    fun formatTime(sec: Int): String {
+        if (sec < 60) return sec.toString() + "秒"
+        val m = sec / 60
+        val s = sec % 60
+        if (sec < 3600) return m.toString() + "分" + if (s > 0) s.toString() + "秒" else ""
+        val h = sec / 3600
+        val rm = (sec % 3600) / 60
+        return h.toString() + "时" + if (rm > 0) rm.toString() + "分" else ""
+    }
 
     Scaffold(topBar = { ScreenTopBar("学习统计", onBack = { navController.popBackStack() }) }) { padding ->
         LazyColumn(
@@ -85,38 +129,116 @@ fun StatsScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Stat("题库", banks.size.toString(), Modifier.weight(1f))
-                    Stat("总题量", totalQuestions.toString(), Modifier.weight(1f))
-                    Stat("累计作答", totalAnswered.toString(), Modifier.weight(1f))
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Stat("总正确率", "$overallAcc%", Modifier.weight(1f))
-                    Stat("错题", wrongCount.toString(), Modifier.weight(1f))
-                    Stat("收藏", favCount.toString(), Modifier.weight(1f))
+            // 题库筛选 Tab
+            if (bankList.size > 1) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        bankList.forEach { (id, name) ->
+                            FilterChip(
+                                selected = selectedBankId == id,
+                                onClick = { selectedBankId = id },
+                                label = { Text(name, fontSize = 12.sp) },
+                                modifier = Modifier.height(32.dp)
+                            )
+                        }
+                    }
                 }
             }
 
+            // 核心数据卡片（渐变色）
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            StatCell("$overallAccFiltered%", "总正确率", Modifier.weight(1f))
+                            StatCell(totalAnsweredFiltered.toString(), "累计题目", Modifier.weight(1f))
+                            StatCell(formatTime(totalTimeFiltered), "总用时", Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            // 详细指标
             item {
                 CardBox {
-                    Text("最近 7 天正确率趋势", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Spacer(Modifier.height(10.dp))
-                    if (daily.all { it.second.first == 0 }) {
-                        Text("近 7 天暂无刷题记录", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            daily.forEach { (day, pair) ->
+                    Text("详细指标", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        DetailRow("刷题次数", "${totalSessions} 次")
+                        DetailRow("答对题数", "$totalCorrectFiltered / $totalAnsweredFiltered")
+                        DetailRow("最高正确率", "$bestAccuracy%")
+                        DetailRow("平均正确率", "$avgAccuracy%")
+                        DetailRow("平均用时/题", formatTime(avgTimePerQ))
+                    }
+                }
+            }
+
+            // 最近N次正确率趋势
+            if (recent7.size >= 2) {
+                item {
+                    CardBox {
+                        Text("近期趋势（最近 ${recent7.size} 次）", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            recent7.forEachIndexed { i, rec ->
+                                val h = maxOf(8, (rec.accuracy.toFloat() / maxTrendAcc * 72).toInt())
+                                val isLast = i == recent7.size - 1
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(pair.second?.let { "$it%" } ?: "—", fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                                    Text("${rec.accuracy}%", fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 11.sp, color = if (isLast) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     Spacer(Modifier.height(2.dp))
-                                    Text(pair.first.toString(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(day, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Box(
+                                        modifier = Modifier
+                                            .width(32.dp)
+                                            .height(h.dp)
+                                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                            .background(if (isLast) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    val df = SimpleDateFormat("dd日", Locale.getDefault())
+                                    Text(df.format(Date(rec.finishedAt)), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 正确率分布
+            item {
+                CardBox {
+                    Text("正确率分布", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        accBands.forEach { band ->
+                            val label = band.label
+                            val count = band.count
+                            val color = band.color
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(48.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Box(modifier = Modifier.weight(1f).height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
+                                    if (maxBandCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .height(10.dp)
+                                                .fillMaxWidth((count.toFloat() / maxBandCount).coerceAtMost(1f))
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(color)
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text("$count 次", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -207,19 +329,26 @@ fun StatsScreen(navController: NavController) {
     }
 }
 
+@Composable
+private fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 private fun typeLabel(t: QuestionType): String = when (t) {
     QuestionType.single -> "单选题"
     QuestionType.multiple -> "多选题"
     QuestionType.judge -> "判断题"
     QuestionType.fill -> "填空题"
     QuestionType.essay -> "简答题"
-}
-
-@Composable
-private fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
-    CardBox(modifier) {
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
 }
