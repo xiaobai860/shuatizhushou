@@ -1,5 +1,6 @@
 package com.example.shuati.ui
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -40,6 +41,7 @@ fun AppNavHost() {
     val currentRoute = backStackEntry?.destination?.route
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0), // 避免与外层各页 TopAppBar 的状态栏 inset 叠加
         bottomBar = {
             if (currentRoute in topLevelRoutes) {
                 NavigationBar {
@@ -50,16 +52,16 @@ fun AppNavHost() {
                         label = { Text("首页") }
                     )
                     NavigationBarItem(
-                        selected = currentRoute == Routes.TAB_LIBRARY,
-                        onClick = { navController.navigate(Routes.TAB_LIBRARY) { topLevelOptions(navController.graph.findStartDestination().id) } },
-                        icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
-                        label = { Text("题库") }
-                    )
-                    NavigationBarItem(
                         selected = currentRoute == Routes.TAB_STUDY,
                         onClick = { navController.navigate(Routes.TAB_STUDY) { topLevelOptions(navController.graph.findStartDestination().id) } },
                         icon = { Icon(Icons.Filled.School, contentDescription = null) },
                         label = { Text("学习") }
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.TAB_LIBRARY,
+                        onClick = { navController.navigate(Routes.TAB_LIBRARY) { topLevelOptions(navController.graph.findStartDestination().id) } },
+                        icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
+                        label = { Text("题库") }
                     )
                     NavigationBarItem(
                         selected = currentRoute == Routes.TAB_MINE,
