@@ -25,18 +25,18 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DedupScreen(navController: NavController) {
+fun DedupScreen(navController: NavController, initialBankId: String? = null) {
     val repo = remember { AppRepository(navController.context) }
     val banks = remember { repo.getBanks() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // 查重模式：单题库 vs 跨题库
+    // 查重模式：单题库 vs 跨题库（从题库列表直达时默认选中该题库）
     var dedupMode by remember { mutableStateOf("single") }
     // 相似度阈值 (20-95%，存为 Int)
     var threshold by remember { mutableStateOf(repo.getDedupThreshold().toInt()) }
     // 当前选中的题库（单题库模式下）
-    var selectedBankId by remember { mutableStateOf<String?>(null) }
+    var selectedBankId by remember { mutableStateOf(initialBankId) }
     // 批量选择
     var selectedGroupIdx by remember { mutableStateOf<Int?>(null) }
     var selectedQIds by remember { mutableStateOf<Set<String>>(emptySet()) }

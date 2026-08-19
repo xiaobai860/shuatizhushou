@@ -28,7 +28,14 @@ fun AppNavHost() {
         composable(Routes.STATS) { StatsScreen(navController) }
         composable(Routes.RECOMMEND) { RecommendScreen(navController) }
         composable(Routes.STUDY_PLAN) { StudyPlanScreen(navController) }
-        composable(Routes.DEDUP) { DedupScreen(navController) }
+        composable(
+            route = "${Routes.DEDUP}?bankId={bankId}",
+            arguments = listOf(
+                navArgument("bankId") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { backStack ->
+            DedupScreen(navController, initialBankId = backStack.arguments?.getString("bankId"))
+        }
 
         composable(
             route = "${Routes.EDIT_BANK}?bankId={bankId}&editQuestionId={editQuestionId}",

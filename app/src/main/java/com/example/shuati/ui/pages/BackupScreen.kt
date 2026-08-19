@@ -34,6 +34,7 @@ fun BackupScreen(navController: NavController) {
     var status by remember { mutableStateOf("") }
     var overwrite by remember { mutableStateOf(true) }
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
+    var showClearDialog by remember { mutableStateOf(false) }
 
     // 导出
     val exportLauncher = rememberLauncherForActivityResult(
@@ -107,6 +108,18 @@ fun BackupScreen(navController: NavController) {
                 }) { Icon(Icons.Filled.Restore, null); Spacer(Modifier.width(8.dp)); Text("选择备份文件") }
             }
 
+            CardBox {
+                Text("清空所有数据", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("删除所有题库、错题、收藏、历史、计划等数据，不可恢复。", fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = { showClearDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) { Text("清空所有数据", color = MaterialTheme.colorScheme.error) }
+            }
+
             if (status.isNotEmpty()) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -118,5 +131,22 @@ fun BackupScreen(navController: NavController) {
             Spacer(Modifier.weight(1f))
             Text("提示：备份文件可用于换机迁移或多人共享题库。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+
+    // 清空数据确认弹窗（与小程序一致：不可恢复）
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("清空所有数据") },
+            text = { Text("此操作将删除所有题库、错题、收藏、历史记录、学习计划、进度及偏好设置，不可恢复！确定清空吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    repo.clearAllData()
+                    status = "已清空全部数据"
+                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("取消") } }
+        )
     }
 }

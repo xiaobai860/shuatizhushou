@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -155,17 +157,48 @@ fun HomeScreen(navController: NavController) {
                 item { EmptyState("还没有题库，去「导入题库」添加吧") }
             } else {
                 items(banks.sortedByDescending { it.updatedAt }) { bank ->
+                    val progress = repo.getProgress(bank.id)
+                    val answered = progress?.answeredIds?.size ?: 0
+                    val total = bank.questions.size
+                    val pct = if (total > 0) (answered.toFloat() / total).coerceIn(0f, 1f) else 0f
+                    val completed = progress?.everCompleted ?: false
                     CardBox(onClick = { navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}") }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 16.sp)
-                                Text("${bank.questions.size} 题", fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                                    Text(
+                                        "$total 题" + if (answered > 0) " · 已答 $answered" else "",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&showModeSelect=true")
+                                }) {
+                                    Text("开始刷题")
+                                }
                             }
-                            TextButton(onClick = {
-                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&showModeSelect=true")
-                            }) {
-                                Text("开始刷题")
+                            if (total > 0) {
+                                Spacer(Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    LinearProgressIndicator(
+                                        progress = { pct },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(4.dp)
+                                            .clip(MaterialTheme.shapes.small),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (completed) "已刷完" else "${(pct * 100).toInt()}%",
+                                        fontSize = 11.sp,
+                                        color = if (completed) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -178,7 +211,14 @@ fun HomeScreen(navController: NavController) {
 
 @Composable
 private fun ScreenTopBarHome() {
-    TopAppBar(title = { Text("刷题", fontWeight = FontWeight.SemiBold) })
+    val ctx = LocalContext.current
+    val version = remember {
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }
+            .getOrNull()
+    }
+    TopAppBar(title = {
+        Text("刷题" + if (version != null) " v$version" else "", fontWeight = FontWeight.SemiBold)
+    })
 }
 
 @Composable

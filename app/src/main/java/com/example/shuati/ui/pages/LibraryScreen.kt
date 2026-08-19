@@ -215,14 +215,24 @@ fun LibraryScreen(navController: NavController) {
                                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (completed) {
                                     Spacer(Modifier.height(4.dp))
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text("已刷完 100%") },
-                                        leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text("已刷完 100%") },
+                                            leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                                            )
                                         )
-                                    )
+                                        Spacer(Modifier.width(4.dp))
+                                        TextButton(onClick = {
+                                            repo.clearProgress(bank.id)
+                                            loadBanks()
+                                        }) {
+                                            Text("清除进度", fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
                                 }
                                 if (!completed && bank.questions.isNotEmpty()) {
                                     Spacer(Modifier.height(4.dp))
@@ -281,8 +291,14 @@ fun LibraryScreen(navController: NavController) {
                             ) {
                                 Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("导出 Excel")
+                                Text("导出")
                             }
+                            OutlinedButton(
+                                onClick = {
+                                    navController.navigate("${Routes.DEDUP}?bankId=${bank.id}")
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("查重") }
                             OutlinedButton(
                                 onClick = {
                                     navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=browse&source=browse")

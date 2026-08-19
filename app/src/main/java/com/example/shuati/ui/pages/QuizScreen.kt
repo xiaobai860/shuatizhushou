@@ -216,6 +216,7 @@ fun QuizScreen(
     val answeredThisSession = remember { mutableStateListOf<String>() }
     var finished by remember { mutableStateOf(false) }
     var favState by remember(current.q.id) { mutableStateOf(repo.isFavorite(current.bankId, current.q.id)) }
+    var showExitConfirm by remember { mutableStateOf(false) }
 
     // 填空多空输入与顺序无关开关（随题目重置；初始取题目 orderFree 属性）
     val fillSlotN = Scoring.fillSlotCount(current.q)
@@ -273,7 +274,7 @@ fun QuizScreen(
         }
         navController.popBackStack()
     }
-    BackHandler(onBack = { saveHistoryAndExit() })
+    BackHandler(onBack = { showExitConfirm = true })
 
     fun commitProgress(correct: Boolean) {
         if (isBrowse) return // 浏览模式不记录判分/错题/进度
@@ -469,19 +470,30 @@ fun QuizScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        // 多空且未提交：显示「不限答案顺序」开关
+                        // 多空且未提交：显示「不限答案顺序」开关（切换后持久化到题库，下次刷到自动恢复）
                         if (fillSlotN > 1 && !submitted) {
+                            fun toggleOrderFree(next: Boolean) {
+                                fillOrderFree = next
+                                // 持久化到题库：__all__ 模式下 current.bankId 指向真实题库
+                                val realBankId = current.bankId.ifEmpty { bankId }
+                                val targetBank = repo.getBankById(realBankId ?: "") ?: return
+                                val qIdx = targetBank.questions.indexOfFirst { it.id == current.q.id }
+                                if (qIdx < 0) return
+                                val qs = targetBank.questions.toMutableList()
+                                qs[qIdx] = qs[qIdx].copy(orderFree = next)
+                                repo.updateBank(targetBank.copy(questions = qs))
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(MaterialTheme.shapes.small)
-                                    .clickable { fillOrderFree = !fillOrderFree }
+                                    .clickable { toggleOrderFree(!fillOrderFree) }
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Switch(
                                     checked = fillOrderFree,
-                                    onCheckedChange = { fillOrderFree = it },
+                                    onCheckedChange = { toggleOrderFree(it) },
                                     modifier = Modifier.scale(0.8f)
                                 )
                                 Spacer(Modifier.width(4.dp))
@@ -551,7 +563,7 @@ fun QuizScreen(
             ) {
                 if (isBrowse) {
                     // 浏览模式：不判分，仅上一题/下一题/退出
-                    OutlinedButton(onClick = { saveHistoryAndExit() }, modifier = Modifier.weight(1f)) { Text("退出") }
+                    OutlinedButton(onClick = { showExitConfirm = true }, modifier = Modifier.weight(1f)) { Text("退出") }
                     Button(
                         onClick = {
                             if (index >= queue.lastIndex) saveHistoryAndExit(true)
@@ -560,7 +572,7 @@ fun QuizScreen(
                         modifier = Modifier.weight(2f)
                     ) { Text(if (index >= queue.lastIndex) "完成浏览" else "下一题") }
                 } else if (!submitted) {
-                    OutlinedButton(onClick = { saveHistoryAndExit() }, modifier = Modifier.weight(1f)) { Text("退出") }
+                    OutlinedButton(onClick = { showExitConfirm = true }, modifier = Modifier.weight(1f)) { Text("退出") }
                     Button(onClick = {
                         val isEmpty = when (current.q.type) {
                             QuestionType.fill -> fillInputs.none { it.isNotBlank() }
@@ -652,6 +664,22 @@ fun QuizScreen(
             }
         }
     }
+
+    // 退出确认弹窗（与小程序一致：中途退出前提示进度已保存）
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("退出刷题") },
+            text = { Text("已答题目的进度已自动保存，确认退出？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExitConfirm = false
+                    saveHistoryAndExit()
+                }) { Text("退出") }
+            },
+            dismissButton = { TextButton(onClick = { showExitConfirm = false }) { Text("继续刷题") } }
+        )
+    }
 }
 
 // ─── 内部类型与辅助 ─────────────────────────────────────────────
@@ -742,7 +770,10 @@ private fun buildQueue(
         "all" -> {
             // 全部题库：跨题库聚合；只刷未做题时按 __all__ 进度（namespaced）过滤
             val banks = repo.getBanks()
-            val all = banks.flatMap { b -> b.questions.map { QuizItem(b.id, it) } }
+            // 跳过不完整题目（选项/答案缺失），与小程序一致
+            val all = banks.flatMap { b ->
+                b.questions.filter { !it.incomplete }.map { QuizItem(b.id, it) }
+            }
             val base = if (filterUnanswered) {
                 val doneSet = repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet()
                 all.filter { "${it.bankId}::${it.q.id}" !in doneSet }
@@ -761,8 +792,10 @@ private fun buildQueue(
             val isAll = bankId == "__all__"
             val bank = if (isAll) null else bankId?.let { repo.getBankById(it) }
             var base = when {
-                bank != null -> bank.questions.map { QuizItem(bank.id, it) }
-                isAll -> repo.getBanks().flatMap { b -> b.questions.map { QuizItem(b.id, it) } }
+                bank != null -> bank.questions.filter { !it.incomplete }.map { QuizItem(bank.id, it) }
+                isAll -> repo.getBanks().flatMap { b ->
+                    b.questions.filter { !it.incomplete }.map { QuizItem(b.id, it) }
+                }
                 else -> emptyList()
             }
             if (filterUnanswered && base.isNotEmpty()) {
