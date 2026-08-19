@@ -26,6 +26,8 @@ import com.example.shuati.model.FavoriteRecord
 import com.example.shuati.model.Question
 import com.example.shuati.ui.Routes
 import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.formatAnswerWithLabel
+import com.example.shuati.ui.components.typeLabel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -242,6 +244,14 @@ fun FavoriteCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    question?.let {
+                        Text(
+                            typeLabel(it.type),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     question?.tags?.forEach { tag ->
                         TagChip(tag)
                     }
@@ -322,7 +332,7 @@ fun QuestionCard(question: Question, showAnswer: Boolean = false) {
             if (showAnswer && !question.answer.isNullOrEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "答案：${question.answer}",
+                    text = "答案：${formatAnswerWithLabel(question)}",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary

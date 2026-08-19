@@ -24,6 +24,7 @@ import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.formatAnswerWithLabel
 import com.example.shuati.ui.components.typeLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,7 +161,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                                                 shape = MaterialTheme.shapes.small
                                             ) {
                                                 Text(
-                                                    "答案：${rec.question?.answer}",
+                                                    "答案：${rec.question?.let { formatAnswerWithLabel(it) } ?: ""}",
                                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.SemiBold,

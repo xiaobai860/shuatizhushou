@@ -83,6 +83,37 @@ fun typeLabel(type: com.example.shuati.model.QuestionType): String = when (type)
     com.example.shuati.model.QuestionType.essay -> "简答"
 }
 
+/**
+ * 答案展示：将答案字母映射为"字母+选项文本"（等价小程序 formatAnswerWithLabel）。
+ * 单选/多选/判断 → "A 橘子、C 葡萄"；填空/简答 → 直接返回答案文本。
+ * 兼容无分隔符的多字母答案（如 "AC"）及超出选项范围的字母（原样返回）。
+ */
+fun formatAnswerWithLabel(q: com.example.shuati.model.Question): String {
+    val type = q.type
+    if (type == com.example.shuati.model.QuestionType.fill ||
+        type == com.example.shuati.model.QuestionType.essay
+    ) {
+        return q.answer ?: ""
+    }
+    val opts = q.options ?: emptyList()
+    val mapOne: (String) -> String = { raw ->
+        val letter = raw.trim().uppercase()
+        val idx = letter.firstOrNull()?.code?.minus('A'.code) ?: -1
+        if (idx in opts.indices && opts[idx].isNotBlank()) "$letter ${opts[idx]}" else letter
+    }
+    val raw = q.answer ?: ""
+    val parts = raw.split(Regex("[,，|｜、\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.size > 1) {
+        return parts.joinToString("、") { mapOne(it) }
+    }
+    val single = parts.firstOrNull() ?: raw
+    // 无分隔符的多字母答案（如多选 "AC"）：逐字母映射
+    if (single.length > 1 && single.all { it.isLetter() }) {
+        return single.map { mapOne(it.toString()) }.joinToString("、")
+    }
+    return mapOne(single)
+}
+
 /** 简单文本标签 Chip，可选自定义颜色 */
 @Composable
 fun TagChip(text: String, containerColor: Color? = null, labelColor: Color? = null) {

@@ -100,6 +100,24 @@ fun QuizScreen(
                     val bi = repo.getPlanProgress(planId)?.sessionBrowseIndex ?: 0
                     index = bi.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
                 }
+                // 普通浏览模式：恢复上次浏览断点（对齐小程序 getBrowseProgress）
+                isBrowse -> {
+                    val bid = if (bankId == "__all__") "__all__" else bankId
+                    val bi = bid?.let { repo.getBrowseProgress(it) } ?: 0
+                    index = bi.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
+                }
+            }
+        }
+    }
+
+    // 浏览模式：保存浏览断点（对齐小程序 saveBrowseProgress / 计划浏览 setPlanBrowseIndex）
+    LaunchedEffect(index, isBrowse) {
+        if (isBrowse && resumedOnce && queue.isNotEmpty()) {
+            if (planId != null) {
+                repo.setPlanBrowseIndex(planId, index)
+            } else {
+                val bid = if (bankId == "__all__") "__all__" else bankId
+                if (bid != null) repo.saveBrowseProgress(bid, index)
             }
         }
     }

@@ -25,6 +25,7 @@ import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.formatAnswerWithLabel
 import com.example.shuati.ui.components.typeLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -134,7 +135,7 @@ fun SearchScreen(navController: NavController) {
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Text(
-                                            "答案：${q.answer}",
+                                            "答案：${formatAnswerWithLabel(q)}",
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
