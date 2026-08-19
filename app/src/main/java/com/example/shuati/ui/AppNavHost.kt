@@ -43,7 +43,8 @@ fun AppNavHost() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val activity = LocalContext.current as? Activity
+    // 应用由 MainActivity.setContent 提供组合上下文，context 必为 Activity，强转确保返回键始终可触发 finish
+    val activity = LocalContext.current as Activity
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0), // 避免与外层各页 TopAppBar 的状态栏 inset 叠加
@@ -179,7 +180,7 @@ fun AppNavHost() {
         // 必须放在 NavHost 之后组合，返回拦截优先级才高于 NavHost 自带的 popBackStack 处理。
         BackHandler(enabled = currentRoute in topLevelRoutes) {
             Log.d("AppNavHost", "back pressed on top-level route $currentRoute, finish activity")
-            activity?.finish()
+            activity.finish()
         }
     }
 }
