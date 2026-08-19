@@ -54,7 +54,26 @@ fun HistoryScreen(navController: NavController) {
                     CardBox {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(h.bankName, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(h.bankName, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                                    if (!h.mode.isNullOrBlank()) {
+                                        val label = when (h.mode) {
+                                            "sequential" -> "顺序"
+                                            "random" -> "随机"
+                                            "browse" -> "浏览"
+                                            else -> h.mode
+                                        }
+                                        Spacer(Modifier.width(6.dp))
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text(label, fontSize = 10.sp) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                            ),
+                                            modifier = Modifier.height(20.dp)
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(4.dp))
                                 Text("${fmt.format(Date(h.createdAt))}　共 ${h.total} 题　正确 ${h.correct}　错误 ${h.wrong}" +
                                         (if (h.durationSec != null) "　用时 ${h.durationSec}s" else ""),

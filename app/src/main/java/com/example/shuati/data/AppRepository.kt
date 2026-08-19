@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import java.util.UUID
 
 /**
@@ -46,12 +47,12 @@ class AppRepository(private val context: Context) {
         runBlocking {
             val raw = context.dataStore.data.first()[key] ?: return@runBlocking emptyList<T>()
             try {
-                json.decodeFromString(emptyList<T>().serializer(), raw)
+                json.decodeFromString(serializer(), raw)
             } catch (_: Exception) { emptyList() }
         }
 
     private inline fun <reified T> writeList(key: androidx.datastore.preferences.core.Preferences.Key<String>, value: List<T>) =
-        runBlocking { context.dataStore.edit { it[key] = json.encodeToString(value.serializer(), value) } }
+        runBlocking { context.dataStore.edit { it[key] = json.encodeToString(serializer(), value) } }
 
     private fun readString(key: androidx.datastore.preferences.core.Preferences.Key<String>, default: String): String =
         runBlocking { context.dataStore.data.first()[key] ?: default }
@@ -182,6 +183,28 @@ class AppRepository(private val context: Context) {
             map[key] = 0
             saveMasteryStreaks(map)
         }
+    }
+
+    /**
+     * 今日连续：统计 history 中从当前日期向前连续有答题记录的天数
+     * （等价小程序首页「今日连续」逻辑）
+     */
+    fun getTodayStreak(): Int {
+        val fmt = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault())
+        val cal = java.util.Calendar.getInstance()
+        var streak = 0
+        while (true) {
+            val day = fmt.format(cal.time)
+            val hasRecord = getHistoryRecords().any { h ->
+                val ts = if (h.finishedAt > 0) h.finishedAt else h.createdAt
+                ts > 0 && fmt.format(java.util.Date(ts)) == day
+            }
+            if (hasRecord) {
+                streak++
+                cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+            } else break
+        }
+        return streak
     }
 
     // ─── 查重阈值 ────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -28,73 +31,53 @@ import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
 import kotlinx.coroutines.launch
-import java.io.IOException
-import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(navController: NavController) {
     val repo = repository()
-    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var banks by remember { mutableStateOf(emptyList<QuestionBank>()) }
-    var keyword by remember { mutableStateOf("") }
+    var searchKeyword by remember { mutableStateOf("") }
     var showDelete by remember { mutableStateOf<QuestionBank?>(null) }
-    var showCreate by remember { mutableStateOf(false) }
-    var clearTarget by remember { mutableStateOf<QuestionBank?>(null) }
-    var exportTarget by remember { mutableStateOf<QuestionBank?>(null) }
+    val context = LocalContext.current
 
-    fun reload() { banks = repo.getBanks() }
-    LaunchedEffect(Unit) { reload() }
-
-    // 导出 Excel：SAF 选择保存位置
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
-        exportTarget?.let { bank ->
-            if (uri != null) {
-                try {
-                    context.contentResolver.openOutputStream(uri)?.use { os ->
-                        ExcelWriter.writeBank(bank, os)
-                    }
-                    Toast.makeText(context, "已导出：${bank.name}.xlsx", Toast.LENGTH_SHORT).show()
-                } catch (e: IOException) {
-                    Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-            exportTarget = null
-        }
+    fun loadBanks() {
+        banks = repo.getBanks()
     }
-    LaunchedEffect(exportTarget) {
-        exportTarget?.let { bank ->
-            exportLauncher.launch("${bank.name}.xlsx")
-        }
-    }
+    LaunchedEffect(Unit) { loadBanks() }
 
-    val filtered = remember(banks, keyword) {
-        if (keyword.isBlank()) banks else banks.filter {
-            it.name.contains(keyword, ignoreCase = true) ||
-                    it.questions.any { q -> q.question.contains(keyword, ignoreCase = true) }
+    val filtered = remember(banks, searchKeyword) {
+        if (searchKeyword.isBlank()) banks
+        else banks.filter {
+            it.name.contains(searchKeyword, ignoreCase = true) ||
+                    it.questions.any { q -> q.question.contains(searchKeyword, ignoreCase = true) }
         }
     }
 
     Scaffold(
-        topBar = { ScreenTopBar("题库管理", onBack = { navController.popBackStack() },
-            actions = { TextButton(onClick = { showCreate = true }) { Text("新建") } }) },
+        topBar = {
+            ScreenTopBar("题库管理", actions = {
+                TextButton(onClick = { navController.navigate(Routes.IMPORT) }) { Text("导入") }
+            })
+        },
         floatingActionButton = {
-            FloatingActionButton(onClick = { navController.navigate(Routes.IMPORT) }) {
-                Icon(Icons.Filled.Add, contentDescription = "导入")
+            FloatingActionButton(onClick = { navController.navigate(Routes.EDIT_BANK) }) {
+                Icon(Icons.Filled.Add, contentDescription = "新增")
             }
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             OutlinedTextField(
-                value = keyword,
-                onValueChange = { keyword = it },
+                value = searchKeyword,
+                onValueChange = { searchKeyword = it },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 placeholder = { Text("搜索题库 / 题目") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = if (keyword.isNotEmpty()) {
-                    { IconButton(onClick = { keyword = "" }) { Icon(Icons.Filled.Clear, contentDescription = "清除") } }
+                trailingIcon = if (searchKeyword.isNotEmpty()) {
+                    { IconButton(onClick = { searchKeyword = "" }) { Icon(Icons.Filled.Clear, contentDescription = "清除") } }
                 } else null
             )
             LazyColumn(
@@ -106,29 +89,61 @@ fun LibraryScreen(navController: NavController) {
                     item { EmptyState(if (banks.isEmpty()) "还没有题库，点右下角 + 导入" else "没有匹配的题库") }
                 }
                 items(filtered) { bank ->
-                    val completed = repo.getProgress(bank.id)?.everCompleted ?: false
+                    val progress = repo.getProgress(bank.id)
+                    val completed = progress?.everCompleted ?: false
                     val wrongCount = repo.getWrongRecords().count { it.bankId == bank.id }
+                    // 计算进度百分比（该题库最高 streak / 目标连对）
+                    val target = repo.getMasteryTarget()
+                    val bankQuestions = bank.questions.map { it.id }.toSet()
+                    val maxStreak = repo.getMasteryStreaks()
+                        .filterKeys { it.startsWith("${bank.id}::") }
+                        .values.maxOrNull() ?: 0
+                    val pct = if (target > 0) (maxStreak.toFloat() / target).coerceIn(0f, 1f) else 0f
+                    // 重复题数
+                    val dupGroups = repo.findDuplicateGroups(bank, repo.getDedupThreshold())
+                    val dupCount = dupGroups.sumOf { it.size } - dupGroups.size
                     CardBox(onClick = { navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}") }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 17.sp)
-                                Spacer(Modifier.height(4.dp))
-                                Text("${bank.questions.size} 题" + if (wrongCount > 0) " · $wrongCount 错题" else "",
-                                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (completed) {
+                        Box(Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 17.sp)
                                     Spacer(Modifier.height(4.dp))
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text("已刷完 100%") },
-                                        leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    Text("${bank.questions.size} 题" + if (wrongCount > 0) " · $wrongCount 错题" else "",
+                                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (completed) {
+                                        Spacer(Modifier.height(4.dp))
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text("已刷完 100%") },
+                                            leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                                            )
                                         )
-                                    )
+                                    }
+                                    // 进度条（仅显示非完成状态时的进度）
+                                    if (!completed && bank.questions.isNotEmpty()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        LinearProgressIndicator(
+                                            progress = { pct },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp)
+                                                .clip(MaterialTheme.shapes.small),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        Text("${(pct * 100).toInt()}% 掌握进度",
+                                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
-                            }
-                            IconButton(onClick = { showDelete = bank }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
+                                if (dupCount > 0) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Text(dupCount.toString(), fontSize = 10.sp, color = Color.White)
+                                    }
+                                }
                             }
                         }
                         Spacer(Modifier.height(10.dp))
@@ -137,87 +152,44 @@ fun LibraryScreen(navController: NavController) {
                                 navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank")
                             }) { Text("刷题") }
                             OutlinedButton(onClick = {
-                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&filterUnanswered=true")
-                            }) { Text("未答") }
+                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=all")
+                            }) { Text("顺序") }
                             OutlinedButton(onClick = {
-                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=browse&source=browse")
-                            }) { Text("浏览") }
-                            OutlinedButton(onClick = { navController.navigate("${Routes.WRONGS}?bankId=${bank.id}") }) { Text("错题") }
-                            OutlinedButton(onClick = { navController.navigate("${Routes.DEDUP}?bankId=${bank.id}") }) { Text("查重") }
+                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=random&source=all")
+                            }) { Text("随机") }
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { exportTarget = bank }) { Text("导出Excel") }
-                            TextButton(onClick = { clearTarget = bank }) { Text("清除进度") }
+                        if (wrongCount > 0) {
+                            Spacer(Modifier.height(6.dp))
+                            Button(
+                                onClick = { navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&source=wrong") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("只练 $wrongCount 道错题") }
                         }
                     }
-                    Spacer(Modifier.height(4.dp))
                 }
             }
         }
     }
 
     if (showDelete != null) {
+        val bank = showDelete!!
         AlertDialog(
             onDismissRequest = { showDelete = null },
             title = { Text("删除题库") },
-            text = { Text("确定删除「${showDelete!!.name}」？该操作不可恢复（错题记录将保留）。") },
+            text = { Text("确定要删除「$bank」吗？\n此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
-                    repo.deleteBank(showDelete!!.id)
+                    scope.launch {
+                        repo.deleteBank(bank.id)
+                        loadBanks()
+                    }
                     showDelete = null
-                    reload()
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { showDelete = null }) { Text("取消") } }
-        )
-    }
-
-    if (clearTarget != null) {
-        AlertDialog(
-            onDismissRequest = { clearTarget = null },
-            title = { Text("清除进度") },
-            text = { Text("确定清除「${clearTarget!!.name}」的刷题进度？错题与收藏不受影响。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    repo.clearProgress(clearTarget!!.id)
-                    clearTarget = null
-                    reload()
-                }) { Text("清除") }
-            },
-            dismissButton = { TextButton(onClick = { clearTarget = null }) { Text("取消") } }
-        )
-    }
-
-    if (showCreate) {
-        var name by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showCreate = false },
-            title = { Text("新建空题库") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(name, { name = it }, label = { Text("题库名称") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Text("创建后将进入编辑页手工添加题目。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val n = name.trim()
-                    if (n.isNotBlank()) {
-                        val res = repo.addBank(QuestionBank(id = UUID.randomUUID().toString(), name = n, questions = emptyList()))
-                        if (res.success) {
-                            showCreate = false
-                            reload()
-                            val created = repo.getBanks().find { it.name == n }
-                            created?.let { navController.navigate("${Routes.EDIT_BANK}?bankId=${it.id}") }
-                        } else {
-                            Toast.makeText(context, res.message ?: "创建失败", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }) { Text("创建") }
-            },
-            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } }
+            dismissButton = {
+                TextButton(onClick = { showDelete = null }) { Text("取消") }
+            }
         )
     }
 }

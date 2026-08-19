@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,6 +25,7 @@ import com.example.shuati.model.QuestionType
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.CardBox
 import kotlinx.coroutines.delay
 import java.util.UUID
 
@@ -68,7 +70,7 @@ fun QuizScreen(
                     index = resumed.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
                 }
                 isBrowse && planId != null -> {
-                    val bi = repo.getPlanProgress(planId)?.browseIndex ?: 0
+                    val bi = repo.getPlanProgress(planId)?.sessionBrowseIndex ?: 0
                     index = bi.coerceAtMost(queue.lastIndex.coerceAtLeast(0))
                 }
             }
@@ -88,15 +90,15 @@ fun QuizScreen(
     val bankName = resolveBankName(repo, source, bankId, planId, isBrowse)
 
     // 状态
-    var selected by remember(current.id) { mutableStateOf(initialAnswer(current.q)) }
-    var submitted by remember(current.id) { mutableStateOf(isBrowse) } // 浏览模式默认“已展示”
+    var selected by remember(current.q.id) { mutableStateOf(initialAnswer(current.q)) }
+    var submitted by remember(current.q.id) { mutableStateOf(isBrowse) } // 浏览模式默认“已展示”
     var autoNext by remember { mutableStateOf(true) }
     var elapsed by remember { mutableStateOf(0) }
     var correctCount by remember { mutableStateOf(0) }
     var wrongCount by remember { mutableStateOf(0) }
     val answeredThisSession = remember { mutableStateListOf<String>() }
     var finished by remember { mutableStateOf(false) }
-    var favState by remember(current.id) { mutableStateOf(repo.isFavorite(current.bankId, current.q.id)) }
+    var favState by remember(current.q.id) { mutableStateOf(repo.isFavorite(current.bankId, current.q.id)) }
 
     // 浏览模式记录浏览进度
     LaunchedEffect(index, isBrowse) {

@@ -3,10 +3,13 @@ package com.example.shuati.ui.pages
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,6 +66,19 @@ fun StatsScreen(navController: NavController) {
         type to totalType
     }.filter { it.second > 0 }
 
+    // 按答题模式分布（从 history 中统计 mode 字段）
+    val modeLabels = mapOf(
+        "sequential" to "顺序",
+        "random" to "随机",
+        "browse" to "浏览"
+    )
+    val modeCounts = history
+        .mapNotNull { it.mode }
+        .groupingBy { it }
+        .eachCount()
+        .toList()
+        .sortedByDescending { (_, c) -> c }
+
     Scaffold(topBar = { ScreenTopBar("学习统计", onBack = { navController.popBackStack() }) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
@@ -100,6 +116,46 @@ fun StatsScreen(navController: NavController) {
                                     Text(pair.first.toString(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Spacer(Modifier.height(2.dp))
                                     Text(day, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 刷题模式分布
+            if (modeCounts.isNotEmpty()) {
+                item {
+                    Text("刷题模式分布", fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        modifier = Modifier.padding(top = 4.dp))
+                    CardBox {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            modeCounts.forEach { (mode, count) ->
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(modeLabels[mode] ?: mode, fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium, modifier = Modifier.width(50.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(14.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .fillMaxWidth(
+                                                    count.toFloat() / modeCounts.maxOfOrNull { (_, c) -> c }!!
+                                                )
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("$count 次", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.logic.ExcelParser
 import com.example.shuati.ui.*
+import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
 import kotlinx.coroutines.launch
 
@@ -52,7 +53,7 @@ fun ImportScreen(navController: NavController) {
                 try {
                     val res = ExcelParser.parseUri(context, uri, parsedName.ifEmpty { "导入题库" })
                     fileName = (context.contentResolver.query(uri, null, null, null, null)
-                        ?.use { cursor -> cursor.moveToFirst().let { cursor.getString(cursor.getColumnIndexOrThrow(android.provider.OpenableColumns.DISPLAY_NAME) } } }
+                        ?.use { cursor -> cursor.moveToFirst().let { cursor.getString(cursor.getColumnIndexOrThrow(android.provider.OpenableColumns.DISPLAY_NAME)) } }
                         ?: "unknown.xlsx")
                     imported = res.imported
                     totalRows = res.totalRows

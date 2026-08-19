@@ -20,7 +20,7 @@ fun ScreenTopBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    SmallTopAppBar(
+    TopAppBar(
         title = { Text(title, fontWeight = FontWeight.SemiBold) },
         navigationIcon = {
             if (onBack != null) {
@@ -30,7 +30,7 @@ fun ScreenTopBar(
             }
         },
         actions = actions,
-        colors = TopAppBarDefaults.smallTopAppBarColors(
+        colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     )

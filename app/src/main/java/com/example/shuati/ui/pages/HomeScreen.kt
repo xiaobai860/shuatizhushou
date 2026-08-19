@@ -30,6 +30,7 @@ fun HomeScreen(navController: NavController) {
     var wrongCount by remember { mutableStateOf(0) }
     var favCount by remember { mutableStateOf(0) }
     var planCount by remember { mutableStateOf(0) }
+    var todayStreak by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         val bs = repo.getBanks()
@@ -38,6 +39,7 @@ fun HomeScreen(navController: NavController) {
         wrongCount = repo.getWrongRecords().size
         favCount = repo.getFavoriteRecords().size
         planCount = repo.getStudyPlans().count { !it.archived }
+        todayStreak = repo.getTodayStreak()
     }
 
     Scaffold(
@@ -58,9 +60,9 @@ fun HomeScreen(navController: NavController) {
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("收藏", favCount.toString(), Modifier.weight(1f))
+                    StatCard("今日连续", todayStreak.toString() + "天", Modifier.weight(1f))
                     StatCard("进行中计划", planCount.toString(), Modifier.weight(1f))
-                    StatCard("掌握度目标", repo.getMasteryTarget().toString() + "连对", Modifier.weight(1f))
+                    StatCard("收藏", favCount.toString(), Modifier.weight(1f))
                 }
             }
 
@@ -126,7 +128,7 @@ fun HomeScreen(navController: NavController) {
 
 @Composable
 private fun ScreenTopBarHome() {
-    SmallTopAppBar(title = { Text("刷题", fontWeight = FontWeight.SemiBold) })
+    TopAppBar(title = { Text("刷题", fontWeight = FontWeight.SemiBold) })
 }
 
 @Composable

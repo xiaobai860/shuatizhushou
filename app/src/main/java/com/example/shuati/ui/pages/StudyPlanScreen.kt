@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
@@ -238,7 +239,7 @@ private fun PunchCalendar(plan: StudyPlan, pp: com.example.shuati.model.PlanProg
 
 private fun buildSessionIds(repo: com.example.shuati.data.AppRepository, plan: StudyPlan): List<String> {
     val bank = repo.getBankById(plan.bankId) ?: return emptyList()
-    val remaining = bank.questions.filter { !repo.getPlanProgress(plan.id)?.answeredIds?.contains(it.id) ?: false }
+    val remaining = bank.questions.filter { !(repo.getPlanProgress(plan.id)?.answeredIds?.contains(it.id) ?: false) }
     val pool = if (remaining.isEmpty()) bank.questions else remaining
     val shuffled = if (plan.orderType == "random") pool.shuffled() else pool
     return shuffled.take(plan.dailyCount).map { it.id }

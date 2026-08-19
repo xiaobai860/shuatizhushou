@@ -1,9 +1,11 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
@@ -27,21 +29,49 @@ import com.example.shuati.ui.components.TagChip
 fun FavoritesScreen(navController: NavController) {
     val repo = repository()
     var records by remember { mutableStateOf(emptyList<FavoriteRecord>()) }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
+    val allTags = remember { repo.getAllTags() }
 
     fun reload() { records = repo.getFavoriteRecords() }
     LaunchedEffect(Unit) { reload() }
 
+    fun getFilteredRecords(): List<FavoriteRecord> = if (selectedTag == null) records
+    else records.filter { rec -> (rec.question?.tags ?: emptyList()).contains(selectedTag) }
+
     Scaffold(topBar = { ScreenTopBar("我的收藏", onBack = { navController.popBackStack() }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            if (allTags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedTag == null,
+                        onClick = { selectedTag = null },
+                        label = { Text("全部") }
+                    )
+                    allTags.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            label = { Text(tag) }
+                        )
+                    }
+                }
+            }
             if (records.isEmpty()) {
                 EmptyState("还没有收藏的题目")
             } else {
+                val displayRecords = getFilteredRecords()
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("共 ${records.size} 个收藏", fontWeight = FontWeight.SemiBold)
+                    Text("共 ${displayRecords.size} 个收藏", fontWeight = FontWeight.SemiBold)
                     Button(onClick = { navController.navigate("${Routes.QUIZ}?mode=sequence&source=favorite") }) {
                         Text("收藏重做")
                     }
@@ -51,7 +81,7 @@ fun FavoritesScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    items(records) { rec ->
+                    items(displayRecords) { rec ->
                         CardBox {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                                 Column(Modifier.weight(1f)) {
@@ -62,9 +92,9 @@ fun FavoritesScreen(navController: NavController) {
                                         Spacer(Modifier.height(4.dp))
                                         Text("备注：${rec.note}", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
                                     }
-                                    if (rec.tags.isNotEmpty()) {
+                                    if ((rec.question?.tags ?: emptyList()).isNotEmpty()) {
                                         Spacer(Modifier.height(4.dp))
-                                        Row { rec.tags.forEach { TagChip(it) } }
+                                        Row { (rec.question?.tags ?: emptyList()).forEach { TagChip(it) } }
                                     }
                                 }
                                 IconButton(onClick = {

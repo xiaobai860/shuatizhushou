@@ -1,9 +1,11 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -28,22 +30,47 @@ import com.example.shuati.ui.components.typeLabel
 fun SearchScreen(navController: NavController) {
     val repo = repository()
     var keyword by remember { mutableStateOf("") }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
+    val allTags = remember { repo.getAllTags() }
 
     // 收集所有 (题库, 题目)
     val all = remember {
         repo.getBanks().flatMap { bank -> bank.questions.map { bank to it } }
     }
-    val results = remember(keyword, all) {
-        if (keyword.isBlank()) emptyList()
+    val results = remember(keyword, all, selectedTag) {
+        val list = if (keyword.isBlank()) emptyList()
         else all.filter { (_, q) ->
             q.question.contains(keyword, ignoreCase = true) ||
                     (q.answer ?: "").contains(keyword, ignoreCase = true) ||
                     q.tags.any { it.contains(keyword, ignoreCase = true) }
         }
+        if (selectedTag != null) list.filter { (_, q) -> selectedTag in q.tags } else list
     }
 
     Scaffold(topBar = { ScreenTopBar("题目搜索", onBack = { navController.popBackStack() }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            if (allTags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedTag == null,
+                        onClick = { selectedTag = null },
+                        label = { Text("全部") }
+                    )
+                    allTags.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            label = { Text(tag) }
+                        )
+                    }
+                }
+            }
             OutlinedTextField(
                 value = keyword, onValueChange = { keyword = it },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),

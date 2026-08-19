@@ -1,9 +1,11 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -29,6 +31,8 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     var records by remember { mutableStateOf(emptyList<WrongRecord>()) }
     var masteryTarget by remember { mutableStateOf(repo.getMasteryTarget()) }
     var showTarget by remember { mutableStateOf(false) }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
+    val allTags = remember { repo.getAllTags() }
 
     fun reload() {
         records = repo.getWrongRecords().let { list ->
@@ -36,6 +40,9 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
         }
     }
     LaunchedEffect(Unit) { reload() }
+
+    fun getFilteredRecords(): List<WrongRecord> = if (selectedTag == null) records
+    else records.filter { rec -> (rec.question?.tags ?: emptyList()).contains(selectedTag) }
 
     Scaffold(
         topBar = {
@@ -49,15 +56,38 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            if (allTags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedTag == null,
+                        onClick = { selectedTag = null },
+                        label = { Text("全部") }
+                    )
+                    allTags.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            label = { Text(tag) }
+                        )
+                    }
+                }
+            }
             if (records.isEmpty()) {
                 EmptyState("太棒了，暂时没有错题")
             } else {
+                val displayRecords = getFilteredRecords()
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("共 ${records.size} 道错题", fontWeight = FontWeight.SemiBold)
+                    Text("共 ${displayRecords.size} 道错题", fontWeight = FontWeight.SemiBold)
                     Button(onClick = {
                         // 错题重做：进入 quiz source=wrong
                         navController.navigate("${Routes.QUIZ}?mode=sequence&source=wrong")
@@ -68,7 +98,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    items(records) { rec ->
+                    items(displayRecords) { rec ->
                         val streak = repo.getStreak(rec.bankId, rec.questionId)
                         CardBox {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -77,9 +107,9 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                                     Spacer(Modifier.height(4.dp))
                                     Text("答错 ${rec.wrongCount} 次　连对 $streak/$masteryTarget", fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (rec.tags.isNotEmpty()) {
+                                    if ((rec.question?.tags ?: emptyList()).isNotEmpty()) {
                                         Spacer(Modifier.height(4.dp))
-                                        Row { rec.tags.forEach { TagChip(it) } }
+                                        Row { (rec.question?.tags ?: emptyList()).forEach { TagChip(it) } }
                                     }
                                 }
                                 IconButton(onClick = {

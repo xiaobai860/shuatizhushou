@@ -29,6 +29,16 @@ output.json
 
 # —— 本地工作记忆（迁移代码仓库不需要） ——
 .codebuddy/
+build_log.txt
+
+# —— Gradle Wrapper JAR（不同环境版本可能不同，按需保留） ——
+gradle/wrapper/gradle-wrapper.jar
+
+# —— Gradle Wrapper 批处理脚本（Windows） ——
+gradlew.bat
+
+# —— Android SDK 工具目录（体积大，不入库） ——
+sdktools/
 
 # —— 密钥/签名（若有） ——
 *.jks

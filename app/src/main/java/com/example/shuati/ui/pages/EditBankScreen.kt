@@ -26,6 +26,7 @@ import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.typeLabel
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
