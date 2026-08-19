@@ -127,11 +127,22 @@ fun HomeScreen(navController: NavController) {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     QuickEntry(Icons.Filled.AutoStories, "全部题库", Modifier.weight(1f)) {
-                        navController.navigate("${Routes.QUIZ}?bankId=__all__&mode=sequence&source=all")
+                        navController.navigate("${Routes.QUIZ}?bankId=__all__&mode=sequence&source=all&showModeSelect=true")
                     }
                     QuickEntry(Icons.Filled.Visibility, "浏览模式", Modifier.weight(1f)) {
                         navController.navigate("${Routes.QUIZ}?bankId=__all__&mode=browse&source=browse")
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    QuickEntry(Icons.Filled.ErrorOutline, "错题回顾", Modifier.weight(1f)) { navController.navigate(Routes.WRONGS) }
+                    QuickEntry(Icons.Filled.Star, "收藏题目", Modifier.weight(1f)) { navController.navigate(Routes.FAVORITES) }
+                    QuickEntry(Icons.Filled.History, "刷题历史", Modifier.weight(1f)) { navController.navigate(Routes.HISTORY) }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    QuickEntry(Icons.Filled.Search, "题目搜索", Modifier.weight(1f)) { navController.navigate(Routes.SEARCH) }
+                    QuickEntry(Icons.Filled.BarChart, "统计分析", Modifier.weight(1f)) { navController.navigate(Routes.STATS) }
                 }
             }
 
@@ -152,7 +163,7 @@ fun HomeScreen(navController: NavController) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             TextButton(onClick = {
-                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank")
+                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&showModeSelect=true")
                             }) {
                                 Text("开始刷题")
                             }

@@ -30,8 +30,9 @@ import java.util.*
 @Composable
 fun HistoryScreen(navController: NavController) {
     val repo = remember { AppRepository(navController.context) }
-    val history = remember { repo.getHistoryRecords() }
+    var history by remember { mutableStateOf(repo.getHistoryRecords()) }
     val banks = remember { repo.getBanks() }
+    var showClearDialog by remember { mutableStateOf(false) }
 
     // 按题库筛选
     val allBankIds = history.map { it.bankId }.distinct()
@@ -56,6 +57,11 @@ fun HistoryScreen(navController: NavController) {
                     }
                 },
                 actions = {
+                    if (history.isNotEmpty()) {
+                        IconButton(onClick = { showClearDialog = true }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "清空历史")
+                        }
+                    }
                     IconButton(onClick = {
                         navController.navigate(Routes.STATS)
                     }) {
@@ -180,6 +186,22 @@ fun HistoryScreen(navController: NavController) {
             }
         }
     }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("清空历史") },
+            text = { Text("确认清空全部刷题历史？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    repo.clearHistoryRecords()
+                    history = emptyList()
+                    showClearDialog = false
+                }) { Text("清空") }
+            },
+            dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
@@ -198,6 +220,7 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            val acc = if (record.total > 0) record.correct * 100 / record.total else 0
             // 标题行
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -230,7 +253,6 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
                 }
 
                 // 正确率
-                val acc = if (record.total > 0) record.correct * 100 / record.total else 0
                 Text(
                     text = "$acc%",
                     fontSize = 20.sp,
@@ -278,6 +300,14 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
                     Text("再次练习", fontSize = 12.sp)
                 }
             }
+
+            // 正确率进度条
+            LinearProgressIndicator(
+                progress = { acc / 100f },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = if (acc >= 60) Color(0xFF4CAF50) else Color(0xFFFF5252),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
         }
     }
 }

@@ -153,6 +153,18 @@ fun FavoritesScreen(navController: NavController) {
                 }
             } else {
                 val listState = rememberLazyListState()
+                // 批量练习（跨题库使用 source=favorite + questionIds）
+                Button(
+                    onClick = {
+                        val ids = filtered.joinToString(",") { "${it.bankId}::${it.questionId}" }
+                        navController.navigate("${Routes.QUIZ}?mode=sequence&source=favorite&questionIds=$ids&showModeSelect=true")
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("练习${if (selectedBankId != null) "当前题库" else "全部"}收藏（${filtered.size}题）")
+                }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -234,20 +246,26 @@ fun FavoriteCard(
                         TagChip(tag)
                     }
                 }
-                // 删除收藏按钮
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            repo.removeFavorite(record.bankId, record.questionId)
-                            snackbarHostState.showSnackbar("已移除收藏")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 单题练习（直接顺序作答）
+                    TextButton(onClick = {
+                        navController.navigate("${Routes.QUIZ}?mode=sequence&source=favorite&questionIds=${record.bankId}::${record.questionId}")
+                    }) { Text("练习", fontSize = 13.sp) }
+                    // 删除收藏按钮
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                repo.removeFavorite(record.bankId, record.questionId)
+                                snackbarHostState.showSnackbar("已移除收藏")
+                            }
                         }
+                    ) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = "取消收藏",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
-                ) {
-                    Icon(
-                        Icons.Filled.Star,
-                        contentDescription = "取消收藏",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
         }

@@ -45,14 +45,15 @@ fun AppNavHost() {
         }
 
         composable(
-            route = "${Routes.QUIZ}?bankId={bankId}&mode={mode}&source={source}&planId={planId}&filterUnanswered={filterUnanswered}&questionIds={questionIds}",
+            route = "${Routes.QUIZ}?bankId={bankId}&mode={mode}&source={source}&planId={planId}&filterUnanswered={filterUnanswered}&questionIds={questionIds}&showModeSelect={showModeSelect}",
             arguments = listOf(
                 navArgument("bankId") { type = NavType.StringType; nullable = true },
                 navArgument("mode") { type = NavType.StringType; defaultValue = "sequence" },
                 navArgument("source") { type = NavType.StringType; defaultValue = "bank" },
                 navArgument("planId") { type = NavType.StringType; nullable = true },
                 navArgument("filterUnanswered") { type = NavType.BoolType; defaultValue = false },
-                navArgument("questionIds") { type = NavType.StringType; defaultValue = "" }
+                navArgument("questionIds") { type = NavType.StringType; defaultValue = "" },
+                navArgument("showModeSelect") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStack ->
             QuizScreen(
@@ -62,7 +63,8 @@ fun AppNavHost() {
                 source = backStack.arguments?.getString("source") ?: "bank",
                 planId = backStack.arguments?.getString("planId"),
                 filterUnanswered = backStack.arguments?.getBoolean("filterUnanswered") ?: false,
-                questionIds = backStack.arguments?.getString("questionIds") ?: ""
+                questionIds = backStack.arguments?.getString("questionIds") ?: "",
+                showModeSelect = backStack.arguments?.getBoolean("showModeSelect") ?: false
             )
         }
 

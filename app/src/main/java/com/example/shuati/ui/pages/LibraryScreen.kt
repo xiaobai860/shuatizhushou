@@ -157,7 +157,7 @@ fun LibraryScreen(navController: NavController) {
                         Button(onClick = {
                             val firstBank = banks.find { it.id == batchIds.first() }
                             if (firstBank != null) {
-                                navController.navigate("${Routes.QUIZ}?bankId=${firstBank.id}&mode=sequence&source=all")
+                                navController.navigate("${Routes.QUIZ}?bankId=${firstBank.id}&mode=sequence&source=all&showModeSelect=true")
                             }
                         }) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -256,7 +256,7 @@ fun LibraryScreen(navController: NavController) {
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = {
-                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank")
+                                navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&showModeSelect=true")
                             }) { Text("刷题") }
                             OutlinedButton(onClick = {
                                 navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=all")
@@ -268,7 +268,7 @@ fun LibraryScreen(navController: NavController) {
                         if (wrongCount > 0) {
                             Spacer(Modifier.height(6.dp))
                             Button(
-                                onClick = { navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&source=wrong") },
+                                onClick = { navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&source=wrong&showModeSelect=true") },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("只练 $wrongCount 道错题") }

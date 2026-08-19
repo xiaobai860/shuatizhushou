@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -23,6 +24,7 @@ import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.typeLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,13 +40,15 @@ fun SearchScreen(navController: NavController) {
         repo.getBanks().flatMap { bank -> bank.questions.map { bank to it } }
     }
     val results = remember(keyword, all, selectedTag) {
-        val list = if (keyword.isBlank()) emptyList()
+        // 关键词为空但选中标签时，也按标签筛选（等价小程序行为）
+        if (keyword.isBlank() && selectedTag == null) emptyList()
         else all.filter { (_, q) ->
-            q.question.contains(keyword, ignoreCase = true) ||
+            val matchKw = keyword.isBlank() || q.question.contains(keyword, ignoreCase = true) ||
                     (q.answer ?: "").contains(keyword, ignoreCase = true) ||
                     q.tags.any { it.contains(keyword, ignoreCase = true) }
+            val matchTag = selectedTag == null || selectedTag in q.tags
+            matchKw && matchTag
         }
-        if (selectedTag != null) list.filter { (_, q) -> selectedTag in q.tags } else list
     }
 
     Scaffold(topBar = { ScreenTopBar("题目搜索", onBack = { navController.popBackStack() }) }) { padding ->
@@ -81,7 +85,7 @@ fun SearchScreen(navController: NavController) {
                     { IconButton(onClick = { keyword = "" }) { Icon(Icons.Filled.Clear, null) } }
                 } else null
             )
-            if (keyword.isBlank()) {
+            if (keyword.isBlank() && selectedTag == null) {
                 EmptyState("输入关键词开始搜索")
             } else if (results.isEmpty()) {
                 EmptyState("未找到匹配的题目")
@@ -96,11 +100,47 @@ fun SearchScreen(navController: NavController) {
                         CardBox(onClick = {
                             navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&questionIds=${bank.id}::${q.id}")
                         }) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(q.question, fontWeight = FontWeight.Medium, fontSize = 15.sp)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("来源：${bank.name}　${typeLabel(q.type)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                    ) {
+                                        Text(
+                                            typeLabel(q.type),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(q.question, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                                        if (q.tags.isNotEmpty()) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Row {
+                                                q.tags.forEach { TagChip(it) }
+                                            }
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text("来源：${bank.name}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                if (!q.answer.isNullOrBlank()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            "答案：${q.answer}",
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }
