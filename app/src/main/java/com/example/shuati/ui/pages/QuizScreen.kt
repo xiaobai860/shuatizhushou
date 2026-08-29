@@ -1206,7 +1206,7 @@ private fun AnswerPanel(
                             Text("AI 解析失败", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.error)
                         }
                         Spacer(Modifier.height(6.dp))
-                        Text(aiError ?: "", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
+                        Text(aiError, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
                         Spacer(Modifier.height(6.dp))
                         TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
                             Text("重试", fontSize = 12.sp)
@@ -1269,7 +1269,7 @@ private fun AnswerPanel(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
-                            Text(aiThinking ?: "正在生成解析…", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(aiThinking, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
