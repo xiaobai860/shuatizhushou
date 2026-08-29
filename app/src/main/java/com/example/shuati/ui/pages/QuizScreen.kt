@@ -51,6 +51,7 @@ import com.example.shuati.data.AiConfigStore
 import com.example.shuati.logic.AiExplainService
 import com.example.shuati.model.AiExplanation
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -94,6 +95,7 @@ fun QuizScreen(
     var aiThinking by remember { mutableStateOf<String?>(null) }
     var aiFlow by remember { mutableStateOf("") }
     var aiJob by remember { mutableStateOf<Job?>(null) }
+    var aiRegenerating by remember { mutableStateOf(false) }
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }
@@ -129,6 +131,16 @@ fun QuizScreen(
     var index by remember { mutableStateOf(0) }
     var resumedOnce by remember { mutableStateOf(false) }
     var showJump by remember { mutableStateOf(false) }
+
+    // 切题时清理上一次可能残留的流式/思考状态，避免串到新题
+    LaunchedEffect(index) {
+        aiJob?.cancel()
+        aiThinking = null
+        aiFlow = ""
+        aiError = null
+        aiRegenerating = false
+        aiBusy = false
+    }
 
     // 续刷/浏览：从断点开始
     LaunchedEffect(queue) {
@@ -765,6 +777,7 @@ fun QuizScreen(
                         aiError = aiError,
                         aiThinking = aiThinking,
                         aiStreamingText = if (aiFlow.isNotEmpty()) aiFlow else null,
+                        aiRegenerating = aiRegenerating,
                         onAiClick = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
                             showAiHintDialog = true
@@ -783,8 +796,11 @@ fun QuizScreen(
                 aiJob?.cancel()              // 取消上一次未完成的请求
                 aiBusy = true
                 aiError = null
-                aiThinking = "正在分析题目并准备资料…"
                 aiFlow = ""
+                // 是否「重新生成」：已有解析则保留旧结果并展示重生成动画
+                val existing = aiMap[q.id] ?: q.aiExplanation
+                aiRegenerating = existing != null
+                aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在分析题目并准备资料…"
                 aiJob = coroutineScope.launch {
                     try {
                         val cfg = AiConfigStore.load(context)
@@ -792,10 +808,14 @@ fun QuizScreen(
                         val eff = hint.ifBlank { bankHint }
                         AiExplainService.explainStream(cfg, q, eff) { ev ->
                             when (ev) {
-                                is AiStreamEvent.Thinking -> aiThinking = ev.msg
-                                is AiStreamEvent.Generating -> { aiThinking = null; aiFlow = "" }
+                                is AiStreamEvent.Thinking -> if (!aiRegenerating) aiThinking = ev.msg
+                                is AiStreamEvent.Generating -> {
+                                    aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
+                                    aiFlow = ""
+                                }
                                 is AiStreamEvent.Delta -> aiFlow += ev.text
                                 is AiStreamEvent.Done -> {
+                                    aiRegenerating = false
                                     repo.saveAiExplanation(bid, q.id, ev.ai)
                                     aiMap = aiMap + (q.id to ev.ai)
                                     aiFlow = ""
@@ -809,6 +829,7 @@ fun QuizScreen(
                     } finally {
                         aiThinking = null
                         aiBusy = false
+                        aiRegenerating = false
                     }
                 }
             }
@@ -1050,6 +1071,7 @@ private fun AnswerPanel(
     aiError: String? = null,
     aiThinking: String? = null,
     aiStreamingText: String? = null,
+    aiRegenerating: Boolean = false,
     onAiClick: () -> Unit = {},
     onRegenerate: () -> Unit = {}
 ) {
@@ -1168,7 +1190,93 @@ private fun AnswerPanel(
         // ── AI 解析（大模型生成，区别于原题 explanation，默认已落盘保存） ──
         val ai = aiExplanation
         when {
-            ai != null && aiThinking == null && aiStreamingText == null -> {
+            // 出错：展示错误 + 重试
+            aiError != null -> {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI 解析失败", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(aiError ?: "", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
+                        Spacer(Modifier.height(6.dp))
+                        TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
+                            Text("重试", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            // 流式逐字生成中（首生成与重新生成共用实时卡）
+            aiStreamingText != null -> {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (aiRegenerating) "AI 解析 · 重新生成中" else "AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(aiStreamingText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            // 重新生成：保留旧结果（半透明），顶部显示「重新生成中」旋转进度
+            aiRegenerating && ai != null -> {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(6.dp))
+                            Text("正在重新生成解析…", fontSize = 12.5.sp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.weight(1f))
+                            Text(ai.model, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // 旧结果半透明展示，明确告知用户正在替换
+                        Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), lineHeight = 20.sp)
+                    }
+                }
+            }
+            // 首生成：思考进度可视化（多步）
+            aiThinking != null -> {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(aiThinking ?: "正在生成解析…", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            // 已保存结果
+            ai != null -> {
                 Spacer(Modifier.height(10.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1197,67 +1305,25 @@ private fun AnswerPanel(
                             Text("提示：${ai.hintUsed}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(4.dp))
-                        TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
+                        TextButton(onClick = onRegenerate, enabled = !aiBusy, modifier = Modifier.align(Alignment.End)) {
+                            if (aiBusy) {
+                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(6.dp))
+                            }
                             Text("重新生成", fontSize = 12.sp)
                         }
                     }
                 }
             }
-            aiStreamingText != null -> {
-                Spacer(Modifier.height(10.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(aiStreamingText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
-                        Spacer(Modifier.height(8.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            aiThinking != null -> {
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                    ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text(aiThinking, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
+            // 未生成：入口按钮
             else -> {
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onAiClick, enabled = !aiBusy, modifier = Modifier.fillMaxWidth()) {
-                    if (aiBusy) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("生成中…")
-                    } else {
-                        Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("AI 解析")
-                    }
+                    Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("AI 解析")
                 }
             }
-        }
-        if (!aiError.isNullOrBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text("⚠ $aiError", fontSize = 12.sp, color = MaterialTheme.semantic.error)
         }
     }
 }

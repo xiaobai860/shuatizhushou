@@ -5,6 +5,7 @@ import com.example.shuati.model.AiConfig
 import com.example.shuati.model.AiExplanation
 import com.example.shuati.model.Question
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -51,25 +52,25 @@ object AiExplainService {
      * 这是让结果更精准的核心——不依赖服务端，纯客户端 prompt 工程即可生效。
      */
     private val SYSTEM_PROMPT = """
-        你是一个专业的考试题库解析助教，擅长把任何题型的题目拆解清楚。请严格按下面的「解析规范」输出，确保简洁、精准、可复习。
+        你是一个严谨的考试题库解析助教。请严格按下列「解析规范」输出，确保简洁、精准、可靠、可复习。
 
-        【角色】你是学科导师，目标不是「给答案」，而是让用户真正理解考点并避免再错。
-        【原则】
-        1. 简洁：每部分 1–3 句，不啰嗦，不重复题干。
-        2. 精准：只讲与本题直接相关的知识与推导，不发散、不凑字数。
-        3. 中文输出，使用 Markdown 小标题。
-
-        【输出格式】请严格使用以下四段（某段确实不适用可省略，但不要新增无关段落）：
+        【角色】你是学科导师，目标是让用户真正理解考点并避免再错，而不是单纯给答案。
+        【可靠性约束（必须遵守）】
+        1. 以用户提供的「标准答案」为准来组织解析；除非该答案明显有误，否则不要否认它。若你认为标准答案有误，先按标准答案给出解析，再用一句「注：…」温和提示存疑点。
+        2. 严禁编造任何来源、文献、书籍或网页链接。仅当用户提供了「联网搜索到的相关资料」时，才可引用其中的真实 URL，并明确标注；没有资料时不要写「来源」。
+        3. 不要输出推理过程标记（如 <think> 之类）、代码围栏（```）、JSON 或多余的符号。直接输出最终解析文本。
+        4. 只输出与本题相关的内容，不发散、不凑字数、不重复题干。
+        【原则】简洁：每部分 1–3 句；精准：只讲直接相关的知识与推导；中文输出。
+        【输出格式】严格使用以下四段（某段确实不适用可省略，但不要新增无关段落）：
         ## 正确答案
         一句话给出正确选项/答案。
         ## 解析
-        说明为什么正确，给出关键推导或依据（ concise）。
+        说明为什么正确，给出关键推导或依据。
         ## 关键知识点
         列出 1–3 个本题涉及的核心考点。
         ## 易错点
         指出考生最容易理解错或混淆的地方（若有）。
-
-        【附】若提供了联网搜索资料，以其为权威依据；若提供了用户补充提示（如考试类别），请贴合该类别的考法。
+        【附】若提供了「联网搜索到的相关资料」，以其为权威依据；若提供了用户补充提示（如考试类别），请贴合该类别的考法。
     """.trimIndent()
 
     /** 流式生成过程中的事件。 */
@@ -186,34 +187,38 @@ object AiExplainService {
         require(cfg.llmBaseUrl.isNotBlank() && cfg.llmApiKey.isNotBlank() && cfg.llmModel.isNotBlank()) {
             "请先在「设置 → AI 大模型配置」中填写大模型地址、Key 与模型"
         }
-        onEvent(AiStreamEvent.Thinking("正在分析题目并准备资料…"))
+        onEvent(AiStreamEvent.Thinking("正在分析题目…"))
+        delay(350)
 
         val searchContext = if (AiConfigStore.searchEnabled(cfg)) {
+            onEvent(AiStreamEvent.Thinking("正在检索相关资料…"))
             runCatching { doSearch(cfg, q.question) }.getOrElse { null }
         } else null
-
-        onEvent(
-            AiStreamEvent.Thinking(
-                if (searchContext != null) "已获取联网资料，正在生成解析…"
-                else "正在生成解析…"
-            )
-        )
+        if (searchContext != null) {
+            onEvent(AiStreamEvent.Thinking("已获取联网资料，正在组织解析…"))
+            delay(300)
+        } else {
+            onEvent(AiStreamEvent.Thinking("正在组织解析框架…"))
+            delay(300)
+        }
 
         val prompt = buildPrompt(q, hint, searchContext?.text)
+        onEvent(AiStreamEvent.Thinking("正在生成解析…（大模型思考中）"))
         onEvent(AiStreamEvent.Generating)
 
-        val full = StringBuilder()
+        val raw = StringBuilder()
         try {
             streamChat(cfg, prompt) { delta ->
-                full.append(delta)
-                onEvent(AiStreamEvent.Delta(delta))
+                raw.append(delta)
+                val clean = sanitizeAiText(raw.toString())
+                if (clean.isNotEmpty()) onEvent(AiStreamEvent.Delta(clean))
             }
         } catch (e: Exception) {
             onEvent(AiStreamEvent.Error(e.message ?: "生成失败"))
             throw e
         }
 
-        val text = full.toString().trim()
+        val text = sanitizeAiText(raw.toString()).trim()
         if (text.isBlank()) throw IllegalStateException("模型未返回解析内容，请检查模型/Key 或重试")
 
         val ai = AiExplanation(
@@ -335,6 +340,25 @@ object AiExplainService {
         }
     }
 
+    /**
+     * 清洗模型输出：剥离推理块（<think>…</think>）、零宽空格、控制字符，
+     * 合并多余空行，避免无意义字符与乱码进入解析结果。
+     */
+    private fun sanitizeAiText(raw: String): String {
+        var s = raw
+        // 去掉推理过程标记及其内容（可能跨多行、可能未闭合）
+        s = s.replace(Regex("(?is)<think>.*?(</think>|$)"), "")
+        // 去掉控制字符（保留 \n \t）
+        s = s.replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]"), "")
+        // 去掉零宽空格 / 软连字符 / BOM
+        s = s.replace(Regex("[\\u200B\\u200C\\u200D\\uFEFF\\u00AD]"), "")
+        // 合并 3 个及以上连续换行
+        s = s.replace(Regex("\\n{3,}"), "\n\n")
+        // 行内多余空格折叠
+        s = s.replace(Regex("[ \\t]{2,}"), " ")
+        return s.trim()
+    }
+
     private fun buildPrompt(q: Question, hint: String, searchText: String?): String {
         val sb = StringBuilder()
         sb.appendLine("这是一道题目，请按解析规范解释为什么给出的标准答案是正确的。")
@@ -346,8 +370,8 @@ object AiExplainService {
         }
         sb.appendLine("\n【标准答案】${q.answer ?: "（无）"}")
         if (!q.explanation.isNullOrBlank()) sb.appendLine("\n【题库自带解析】${q.explanation}")
-        if (!searchText.isNullOrBlank()) sb.appendLine("\n【联网搜索到的相关资料】\n$searchText")
-        sb.appendLine("\n请严格按「正确答案 / 解析 / 关键知识点 / 易错点」四段输出，保持简洁精准。")
+        if (!searchText.isNullOrBlank()) sb.appendLine("\n【联网搜索到的相关资料】（以下为权威依据，若引用其中的链接须保留真实 URL，禁止编造）\n$searchText")
+        sb.appendLine("\n请严格按「正确答案 / 解析 / 关键知识点 / 易错点」四段输出，保持简洁精准；不要输出 <think> 标记、代码围栏或 JSON。")
         return sb.toString()
     }
 
