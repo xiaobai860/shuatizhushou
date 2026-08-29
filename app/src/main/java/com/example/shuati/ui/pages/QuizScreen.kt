@@ -2,6 +2,7 @@ package com.example.shuati.ui.pages
 
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +18,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -442,6 +444,20 @@ fun QuizScreen(
         }
     }
 
+    // 自动下一题：提交判分后，若开启 autoNext，延时自动跳到下一题
+    // （最后一题不自动跳，留给用户点「查看结果」；手动上一题/下一题或关开关会取消待执行的自动跳）
+    LaunchedEffect(submitted, autoNext, index) {
+        if (submitted && autoNext && !isBrowse && index < queue.lastIndex) {
+            delay(1200)
+            if (index < queue.lastIndex) {
+                index++
+                submitted = false
+                questionElapsed = 0
+                selected = initialAnswer(queue[index].q)
+            }
+        }
+    }
+
     // 退出前保存本次刷题历史（中途退出也会记录；浏览模式仅在浏览完成时记录）
     fun saveHistoryAndExit(finishedBrowse: Boolean = false) {
         val histBankId = if (source == "all" || bankId == "__all__") "__all__" else (bankId ?: "__all__")
@@ -515,36 +531,42 @@ fun QuizScreen(
                 onBack = { saveHistoryAndExit() },
                 actions = {
                     // 跳题浮层
-                    IconButton(onClick = { showJump = true }) {
-                        Icon(Icons.Filled.ListAlt, contentDescription = "跳题")
-                    }
-                    // 只刷未做题开关（与 FlashOn 相邻；点击重建队列）
-                    IconButton(onClick = { toggleFilter() }) {
-                        Icon(
-                            if (filterLocal) Icons.Filled.FilterAlt else Icons.Filled.FilterAltOff,
-                            contentDescription = "只刷未做题",
-                            tint = if (filterLocal) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
+                    SemanticIconButton(
+                        icon = Icons.Filled.ListAlt,
+                        contentDescription = "跳题",
+                        tooltip = "跳转到指定题号",
+                        onClick = { showJump = true }
+                    )
+                    // 只刷未做题开关（点击重建队列）
+                    SemanticIconButton(
+                        icon = if (filterLocal) Icons.Filled.FilterAlt else Icons.Filled.FilterAltOff,
+                        contentDescription = if (filterLocal) "只刷未做题：开" else "只刷未做题：关",
+                        tooltip = "只刷未做题（已做过的题不再出现）",
+                        tint = if (filterLocal) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        onClick = { toggleFilter() }
+                    )
                     if (!isBrowse) {
-                        IconButton(onClick = { autoNext = !autoNext }) {
-                            Icon(if (autoNext) Icons.Filled.FlashOn else Icons.Filled.FlashOff, contentDescription = "自动下一题")
-                        }
+                        SemanticIconButton(
+                            icon = if (autoNext) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                            contentDescription = if (autoNext) "自动下一题：开" else "自动下一题：关",
+                            tooltip = "自动下一题（提交后自动跳到下一题）",
+                            onClick = { autoNext = !autoNext }
+                        )
                     }
-                    IconButton(onClick = {
-                        favState = repo.toggleFavorite(
-                            com.example.shuati.model.FavoriteRecord(
-                                bankId = current.bankId, bankName = bankName, questionId = current.q.id,
-                                question = current.q, createdAt = System.currentTimeMillis()
+                    SemanticIconButton(
+                        icon = if (favState) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (favState) "已收藏" else "收藏",
+                        tooltip = if (favState) "取消收藏本题" else "收藏本题",
+                        tint = if (favState) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        onClick = {
+                            favState = repo.toggleFavorite(
+                                com.example.shuati.model.FavoriteRecord(
+                                    bankId = current.bankId, bankName = bankName, questionId = current.q.id,
+                                    question = current.q, createdAt = System.currentTimeMillis()
+                                )
                             )
-                        )
-                    }) {
-                        Icon(
-                            if (favState) Icons.Filled.Star else Icons.Filled.StarBorder,
-                            contentDescription = "收藏",
-                            tint = if (favState) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
+                        }
+                    )
                 }
             )
         }
@@ -1091,6 +1113,34 @@ private fun resolveBankName(
     "all" -> "全部题库"
     "plan" -> repo.getStudyPlans().find { it.id == planId }?.bankName ?: "学习计划"
     else -> if (isBrowse) "浏览" else ""
+}
+
+/**
+ * 无文字图标按钮：点击执行动作，长按弹出语义说明（Material3 Tooltip，长按即显示）。
+ * 用于顶部栏等只显示图标的操作，让用户无需猜测按钮含义。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SemanticIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = LocalContentColor.current,
+    enabled: Boolean = true,
+    tooltip: String = contentDescription
+) {
+    val tooltipState = rememberTooltipState()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(tooltip) } },
+        state = tooltipState,
+        modifier = modifier
+    ) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = contentDescription, tint = tint)
+        }
+    }
 }
 
 private fun buildQueue(
