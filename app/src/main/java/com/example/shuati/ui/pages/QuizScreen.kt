@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
@@ -268,7 +269,7 @@ fun QuizScreen(
                             ) {
                                 Icon(
                                     when (m) {
-                                        "sequence" -> Icons.Filled.Sort
+                                        "sequence" -> Icons.AutoMirrored.Filled.Sort
                                         "random" -> Icons.Filled.Shuffle
                                         else -> Icons.Filled.Book
                                     },
@@ -567,7 +568,7 @@ fun QuizScreen(
                 actions = {
                     // 跳题浮层
                     SemanticIconButton(
-                        icon = Icons.Filled.ListAlt,
+                        icon = Icons.AutoMirrored.Filled.ListAlt,
                         contentDescription = "跳题",
                         tooltip = "跳转到指定题号",
                         onClick = { showJump = true }
@@ -1383,6 +1384,7 @@ private fun resolveBankName(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("DEPRECATION") // 本 BOM（material3 1.3.1）尚未提供 rememberTooltipPositionProvider，保留原有调用
 private fun SemanticIconButton(
     icon: ImageVector,
     contentDescription: String,

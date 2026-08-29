@@ -33,6 +33,7 @@ fun AiSettingsScreen(navController: NavController) {
     var model by remember { mutableStateOf(initial.llmModel) }
     var searchProvider by remember { mutableStateOf(initial.searchProvider) }
     var searchKey by remember { mutableStateOf(initial.searchApiKey) }
+    var customPrompt by remember { mutableStateOf(initial.customPrompt.ifBlank { AiExplainService.SYSTEM_PROMPT }) }
 
     var models by remember { mutableStateOf<List<String>>(emptyList()) }
     var modelExpanded by remember { mutableStateOf(false) }
@@ -46,7 +47,8 @@ fun AiSettingsScreen(navController: NavController) {
         llmApiKey = apiKey.trim(),
         llmModel = model.trim(),
         searchProvider = searchProvider.trim(),
-        searchApiKey = searchKey.trim()
+        searchApiKey = searchKey.trim(),
+        customPrompt = customPrompt
     )
 
     val searchLabel = when (searchProvider) {
@@ -105,7 +107,7 @@ fun AiSettingsScreen(navController: NavController) {
                     label = { Text("模型（可手动输入或拉取）") },
                     singleLine = true,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                    modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable).fillMaxWidth()
                 )
                 ExposedDropdownMenu(
                     expanded = modelExpanded, onDismissRequest = { modelExpanded = false }
@@ -152,7 +154,7 @@ fun AiSettingsScreen(navController: NavController) {
                     value = searchLabel, onValueChange = {},
                     readOnly = true, label = { Text("搜索引擎") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = searchExpanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                    modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth()
                 )
                 ExposedDropdownMenu(expanded = searchExpanded, onDismissRequest = { searchExpanded = false }) {
                     searchOptions.forEach { (value, label) ->
@@ -175,6 +177,24 @@ fun AiSettingsScreen(navController: NavController) {
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 enabled = searchProvider.isNotBlank()
             )
+
+            HorizontalDivider()
+            Text("自定义解析模板（skill）", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 14.sp)
+            Text(
+                "即内置的「题目解析 skill」系统提示。你可修改它来定制 AI 解析的风格与结构（如更偏医学 / 法律 / 编程考法）；留空或点「恢复默认模板」即使用内置模板。",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = customPrompt, onValueChange = { customPrompt = it },
+                label = { Text("解析模板（系统提示）") },
+                placeholder = { Text("内置 skill 模板…", color = MaterialTheme.colorScheme.outline) },
+                singleLine = false,
+                minLines = 6,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButton(onClick = { customPrompt = AiExplainService.SYSTEM_PROMPT }) {
+                Text("恢复默认模板", fontSize = 12.5.sp)
+            }
 
             if (status.isNotBlank()) {
                 Text(status, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.primary)

@@ -51,7 +51,7 @@ object AiExplainService {
      * 内置「题目解析 skill」：作为系统提示注入，约束大模型按统一、简洁、精准的规范输出。
      * 这是让结果更精准的核心——不依赖服务端，纯客户端 prompt 工程即可生效。
      */
-    private val SYSTEM_PROMPT = """
+    val SYSTEM_PROMPT = """
         你是一个严谨的考试题库解析助教。请严格按下列「解析规范」输出，确保简洁、精准、可靠、可复习。
 
         【角色】你是学科导师，目标是让用户真正理解考点并避免再错，而不是单纯给答案。
@@ -249,7 +249,7 @@ object AiExplainService {
             ChatRequest(
                 model = cfg.llmModel,
                 messages = listOf(
-                    ChatMessage("system", SYSTEM_PROMPT),
+                    ChatMessage("system", cfg.customPrompt.ifBlank { SYSTEM_PROMPT }),
                     ChatMessage("user", prompt)
                 ),
                 temperature = 0.3,

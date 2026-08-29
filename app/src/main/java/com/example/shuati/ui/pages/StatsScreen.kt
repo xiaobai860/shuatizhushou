@@ -8,7 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -222,7 +222,7 @@ fun StatsScreen(navController: NavController) {
                             color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.TrendingUp, null,
+                            Icon(Icons.AutoMirrored.Filled.TrendingUp, null,
                                 tint = if ((weekDelta ?: 0) >= 0) MaterialTheme.semantic.success else MaterialTheme.semantic.error,
                                 modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))

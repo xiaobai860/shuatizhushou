@@ -205,5 +205,6 @@ data class AiConfig(
     val llmApiKey: String = "",
     val llmModel: String = "",
     val searchProvider: String = "",  // "tavily" | "exa" | ""（空=依赖模型内置搜索）
-    val searchApiKey: String = ""
+    val searchApiKey: String = "",
+    val customPrompt: String = ""  // 自定义解析模板（即内置 skill），空=使用内置默认 skill
 )

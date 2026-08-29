@@ -158,7 +158,7 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
             }
 
             // Tab 切换
-            TabRow(selectedTabIndex = tab) {
+            PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(
                     selected = tab == 0,
                     onClick = { tab = 0 },
@@ -666,7 +666,7 @@ fun QuestionEditDialog(
                         readOnly = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .menuAnchor(),
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                         label = { Text("题型") }
                     )
                     ExposedDropdownMenu(

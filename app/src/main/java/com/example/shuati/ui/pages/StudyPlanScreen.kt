@@ -457,7 +457,7 @@ private fun PlanEditDialog(
                         OutlinedTextField(
                             if (selectedBankId.isEmpty()) "全部题库" else (banks.find { it.id == selectedBankId }?.name ?: "选择题库"),
                             {}, readOnly = true,
-                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankExpanded) }
                         )
                         ExposedDropdownMenu(bankExpanded, { bankExpanded = false }) {

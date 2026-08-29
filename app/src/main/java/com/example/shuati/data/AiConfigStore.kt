@@ -17,6 +17,7 @@ object AiConfigStore {
     private const val K_MODEL = "llm_model"
     private const val K_SEARCH_PROVIDER = "search_provider"
     private const val K_SEARCH_KEY = "search_api_key"
+    private const val K_PROMPT = "custom_prompt"
 
     private fun prefs(ctx: Context) = EncryptedSharedPreferences.create(
         ctx,
@@ -33,7 +34,8 @@ object AiConfigStore {
             llmApiKey = p.getString(K_KEY, "") ?: "",
             llmModel = p.getString(K_MODEL, "") ?: "",
             searchProvider = p.getString(K_SEARCH_PROVIDER, "") ?: "",
-            searchApiKey = p.getString(K_SEARCH_KEY, "") ?: ""
+            searchApiKey = p.getString(K_SEARCH_KEY, "") ?: "",
+            customPrompt = p.getString(K_PROMPT, "") ?: ""
         )
     }
 
@@ -44,6 +46,7 @@ object AiConfigStore {
             putString(K_MODEL, cfg.llmModel)
             putString(K_SEARCH_PROVIDER, cfg.searchProvider)
             putString(K_SEARCH_KEY, cfg.searchApiKey)
+            putString(K_PROMPT, cfg.customPrompt)
         }.apply()
     }
 
