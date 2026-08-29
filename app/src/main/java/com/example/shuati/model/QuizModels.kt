@@ -146,6 +146,8 @@ data class PlanProgress(
 data class AppSettings(
     val masteryTarget: Int = 3,
     val dedupThreshold: Double = 0.45,
+    // 动态取色（Material You）：默认开启
+    val dynamicColor: Boolean = true,
     // masteryStreaks 用 Map 表示，key 形如 "bankId::questionId"
     val masteryStreaks: Map<String, Int> = emptyMap()
 )

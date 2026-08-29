@@ -44,3 +44,9 @@ sdktools/
 *.jks
 *.keystore
 signing.properties
+
+# —— WorkBuddy 本地数据（记忆/会话缓存，勿入库） ——
+.workbuddy/
+
+# —— 设计交付产物（原型/规范可据 .impeccable.md 与代码重现） ——
+outputs/

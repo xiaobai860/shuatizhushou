@@ -3,22 +3,25 @@ package com.example.shuati.ui
 import android.app.Activity
 import android.util.Log
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavOptionsBuilder
@@ -35,54 +38,97 @@ private val topLevelRoutes = setOf(
     Routes.HOME, Routes.TAB_LIBRARY, Routes.TAB_STUDY, Routes.TAB_MINE
 )
 
+private data class NavItemSpec(
+    val route: String,
+    val icon: ImageVector,
+    val label: String
+)
+
+private val navItems = listOf(
+    NavItemSpec(Routes.HOME, Icons.Filled.Home, "首页"),
+    NavItemSpec(Routes.TAB_STUDY, Icons.Filled.School, "学习"),
+    NavItemSpec(Routes.TAB_LIBRARY, Icons.AutoMirrored.Filled.LibraryBooks, "题库"),
+    NavItemSpec(Routes.TAB_MINE, Icons.Filled.Person, "我的")
+)
+
 /**
- * 全局导航图。顶部四页（首页/题库/学习/我的）挂底部导航栏，其余详情页全屏显示。
+ * 底部导航（2026 版）：surface 底 + secondaryContainer 胶囊指示器。
+ * 高 72dp，图标 22dp，标签 11sp；仅顶层四页显示，其余详情页全屏隐藏。
+ */
+@Composable
+private fun SoftBottomBar(
+    currentRoute: String?,
+    onTabSelected: (String) -> Unit
+) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        modifier = Modifier.height(72.dp)
+    ) {
+        navItems.forEach { item ->
+            val selected = currentRoute == item.route
+            NavigationBarItem(
+                selected = selected,
+                onClick = { onTabSelected(item.route) },
+                icon = {
+                    Icon(
+                        item.icon,
+                        contentDescription = item.label,
+                        modifier = Modifier.size(22.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        item.label,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            )
+        }
+    }
+}
+
+/**
+ * 全局导航图。顶部四页挂底部导航，其余详情页全屏显示。
  */
 @Composable
 fun AppNavHost() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    // 应用由 MainActivity.setContent 提供组合上下文，context 必为 Activity，强转确保返回键始终可触发 finish
+    // 应用由 MainActivity.setContent 提供组合上下文，context 必为 Activity
     val activity = LocalContext.current as Activity
 
     Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0), // 避免与外层各页 TopAppBar 的状态栏 inset 叠加
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (currentRoute in topLevelRoutes) {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.HOME,
-                        onClick = { navController.navigate(Routes.HOME) { topLevelOptions(navController.graph.findStartDestination().id) } },
-                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                        label = { Text("首页") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.TAB_STUDY,
-                        onClick = { navController.navigate(Routes.TAB_STUDY) { topLevelOptions(navController.graph.findStartDestination().id) } },
-                        icon = { Icon(Icons.Filled.School, contentDescription = null) },
-                        label = { Text("学习") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.TAB_LIBRARY,
-                        onClick = { navController.navigate(Routes.TAB_LIBRARY) { topLevelOptions(navController.graph.findStartDestination().id) } },
-                        icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
-                        label = { Text("题库") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.TAB_MINE,
-                        onClick = { navController.navigate(Routes.TAB_MINE) { topLevelOptions(navController.graph.findStartDestination().id) } },
-                        icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                        label = { Text("我的") }
-                    )
-                }
+                SoftBottomBar(
+                    currentRoute = currentRoute,
+                    onTabSelected = { route ->
+                        navController.navigate(route) {
+                            topLevelOptions(navController.graph.findStartDestination().id)
+                        }
+                    }
+                )
             }
         }
-    ) { innerPadding ->
+    ) { padding ->
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
         ) {
 
             // 顶部四页
@@ -102,10 +148,15 @@ fun AppNavHost() {
             composable(Routes.STATS) { StatsScreen(navController) }
             composable(Routes.RECOMMEND) { RecommendScreen(navController) }
             composable(Routes.STUDY_PLAN) { StudyPlanScreen(navController) }
+
             composable(
                 route = "${Routes.DEDUP}?bankId={bankId}",
                 arguments = listOf(
-                    navArgument("bankId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                    navArgument("bankId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
                 )
             ) { backStack ->
                 DedupScreen(navController, initialBankId = backStack.arguments?.getString("bankId"))
@@ -114,8 +165,15 @@ fun AppNavHost() {
             composable(
                 route = "${Routes.EDIT_BANK}?bankId={bankId}&editQuestionId={editQuestionId}",
                 arguments = listOf(
-                    navArgument("bankId") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("editQuestionId") { type = NavType.StringType; defaultValue = "" }
+                    navArgument("bankId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("editQuestionId") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
                 )
             ) { backStack ->
                 EditBankScreen(
@@ -175,13 +233,12 @@ fun AppNavHost() {
                 )
             }
         }
+    }
 
-        // 底部导航页（首页/学习/题库/我的）按返回键直接退出应用。
-        // 必须放在 NavHost 之后组合，返回拦截优先级才高于 NavHost 自带的 popBackStack 处理。
-        BackHandler(enabled = currentRoute in topLevelRoutes) {
-            Log.d("AppNavHost", "back pressed on top-level route $currentRoute, finish activity")
-            activity.finish()
-        }
+    // 底部导航页（首页/学习/题库/我的）按返回键直接退出应用
+    BackHandler(enabled = currentRoute in topLevelRoutes) {
+        Log.d("AppNavHost", "back pressed on top-level route $currentRoute, finish activity")
+        activity.finish()
     }
 }
 

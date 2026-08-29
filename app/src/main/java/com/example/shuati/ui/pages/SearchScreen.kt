@@ -1,5 +1,7 @@
 package com.example.shuati.ui.pages
 
+
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -23,6 +25,7 @@ import androidx.navigation.NavController
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
+import com.example.shuati.ui.components.SectionTitle
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.formatAnswerWithLabel
@@ -52,7 +55,9 @@ fun SearchScreen(navController: NavController) {
         }
     }
 
-    Scaffold(topBar = { ScreenTopBar("题目搜索", onBack = { navController.popBackStack() }) }) { padding ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        ScreenTopBar("题目搜索", onBack = { navController.popBackStack() }, subtitle = "关键词 · 标签筛选")
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (allTags.isNotEmpty()) {
                 Row(
@@ -96,7 +101,9 @@ fun SearchScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    item { Text("找到 ${results.size} 道题目", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item {
+                        SectionTitle("找到 ${results.size} 道题", action = "相关度")
+                    }
                     items(results) { (bank, q) ->
                         CardBox(onClick = {
                             navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&questionIds=${bank.id}::${q.id}")

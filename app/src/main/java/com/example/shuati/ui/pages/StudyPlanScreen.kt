@@ -1,5 +1,7 @@
 package com.example.shuati.ui.pages
 
+
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,7 +30,13 @@ import com.example.shuati.model.StudyPlan
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
+import com.example.shuati.ui.theme.semantic
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.Badge
+import com.example.shuati.ui.components.HeroCard
+import com.example.shuati.ui.components.RingProgress
+import com.example.shuati.ui.components.SoftButton
+import com.example.shuati.ui.components.ThinProgress
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.ceil
@@ -53,6 +61,8 @@ fun StudyPlanScreen(navController: NavController) {
     val validPlans = active.filter { repo.getBankById(it.bankId) != null }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar("学习计划", onBack = { navController.popBackStack() }) },
         floatingActionButton = { FloatingActionButton(onClick = { showCreate = true }) { Icon(Icons.Filled.Add, null) } }
     ) { padding ->
@@ -189,101 +199,113 @@ private fun PlanCard(
     else if (answeredTotal > 0) "已完成 $answeredTotal / ${plan.totalQuestions} 题"
     else "每日 ${plan.dailyCount} 题"
 
-    CardBox {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(plan.title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(if (bankExists) "${plan.bankName}" else "⚠ ${plan.bankName}（已删除）",
-                    fontSize = 13.sp, color = if (bankExists) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-                Text("${if (isStudy) "练习" else "浏览"}模式 · ${if (plan.orderType == "random") "随机" else "顺序"}",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(progressText + " · 每轮 ${plan.cycleDays} 天 · 第 $roundNo/$totalRounds 轮",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (estFinishDate != null) {
-                    Text("预计完成：$estFinishDate",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+    if (archived) {
+        // 已归档：简洁卡
+        CardBox {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(plan.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Spacer(Modifier.height(3.dp))
+                    Text("${plan.bankName} · $answeredTotal/${plan.totalQuestions} 题",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("开始 $today · 截止 ${plan.endDate ?: "不限"}",
-                    fontSize = 13.sp, color = if (isExpired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                if (punchedToday) {
-                    Spacer(Modifier.height(4.dp))
-                    AssistChip(onClick = {}, label = { Text("今日已打卡") },
-                        leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp)) })
-                }
-                if (isExpired) {
-                    Spacer(Modifier.height(4.dp))
-                    AssistChip(onClick = {}, label = { Text("已过期") },
-                        leadingIcon = { Icon(Icons.Filled.Archive, null, Modifier.size(16.dp)) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.errorContainer))
-                }
-            }
-            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, null) }
-            IconButton(onClick = onArchive) { Icon(Icons.Filled.Archive, null) }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
+                Badge("已完成", color = MaterialTheme.semantic.successContainer, textColor = MaterialTheme.semantic.onSuccessContainer)
+                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, null) }
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) }
             }
         }
+    } else {
+        HeroCard {
+            // 头部：标题 + 操作
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(plan.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = (-0.3).sp,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(3.dp))
+                    Text("${if (isStudy) "练习" else "浏览"}模式 · ${if (plan.orderType == "random") "随机" else "顺序"} · 每轮 ${plan.cycleDays} 天",
+                        fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (punchedToday) {
+                    Badge("今日已打卡", color = MaterialTheme.colorScheme.primaryContainer, textColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onArchive) { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.semantic.error) }
+            }
 
-        Spacer(Modifier.height(10.dp))
-
-        // 今日进度：X/目标 + 进度条 + 完成横幅（对齐小程序计划卡片）
-        if (todayTotal > 0) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("今日进度", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.weight(1f))
-                Text("$todayProgress/$todayTotal", fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                    color = if (isDoneToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            // 总进度 + 环
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                RingProgress(
+                    progress = if (plan.totalQuestions > 0) (answeredTotal.toFloat() / plan.totalQuestions).coerceIn(0f, 1f) else 0f,
+                    size = 58.dp,
+                    strokeWidth = 6.dp,
+                    label = "${(answeredTotal * 100 / plan.totalQuestions.coerceAtLeast(1))}%"
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("已完成 $answeredTotal / ${plan.totalQuestions} 题",
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(6.dp))
+                    ThinProgress(
+                        progress = if (plan.totalQuestions > 0) answeredTotal.toFloat() / plan.totalQuestions else 0f,
+                        height = 6.dp
+                    )
+                    Spacer(Modifier.height(7.dp))
+                    Text("第 $roundNo/$totalRounds 轮 · 预计完成 ${estFinishDate ?: "—"}",
+                        fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { (todayProgress.toFloat() / todayTotal).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-            if (isDoneToday) {
-                Spacer(Modifier.height(4.dp))
+
+            PunchCalendar(plan, pp, today)
+            Spacer(Modifier.height(8.dp))
+
+            // 今日进度
+            if (todayTotal > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(4.dp))
-                    Text("今日目标已完成", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
+                    Text("今日进度", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.weight(1f))
+                    Text("$todayProgress/$todayTotal", fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                        color = if (isDoneToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                }
+                Spacer(Modifier.height(6.dp))
+                ThinProgress(progress = (todayProgress.toFloat() / todayTotal).coerceIn(0f, 1f), height = 6.dp)
+                if (isDoneToday) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.semantic.success)
+                        Spacer(Modifier.width(4.dp))
+                        Text("今日目标已完成", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.semantic.success)
+                    }
                 }
             }
-        }
 
-        PunchCalendar(plan, pp, today)
-        Spacer(Modifier.height(10.dp))
-
-        Button(
-            onClick = {
-                if (isExpired || !bankExists) return@Button
-                val ids = buildSessionIds(repo, plan)
-                if (pp == null || pp.sessionDate != today) {
-                    repo.initPlanSession(plan.id, ids, today, pp?.answeredIds ?: emptyList())
-                }
-                val startIdx = if (isStudy) pp?.sessionAnsweredCount ?: 0 else pp?.sessionBrowseIndex ?: 0
-                val firstId = ids.getOrNull(startIdx)
-                if (firstId != null) {
-                    val realMode = if (isStudy) plan.orderType else "browse"
-                    // 剩余题目作为 questionIds（支持断点续练）
-                    val remainingIds = ids.subList(startIdx, ids.size).joinToString(",") { "$plan.bankId::$it" }
-                    navController.navigate("${Routes.QUIZ}?bankId=${plan.bankId}&mode=$realMode&source=plan&planId=${plan.id}&questionIds=$remainingIds")
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !archived && !isExpired && bankExists
-        ) {
-            Icon(Icons.Filled.PlayArrow, null)
-            Spacer(Modifier.width(8.dp))
-            Text(when {
-                !bankExists -> "题库已删除"
-                isExpired -> "计划已过期"
-                !todayStarted -> "开始今日任务"
-                sessionDone -> "今日已完成（重做）"
-                else -> "继续今日任务"
-            })
+            Spacer(Modifier.height(12.dp))
+            SoftButton(
+                text = when {
+                    !bankExists -> "题库已删除"
+                    isExpired -> "计划已过期"
+                    !todayStarted -> "开始今日任务"
+                    sessionDone -> "今日已完成（重做）"
+                    else -> "继续今日任务"
+                },
+                icon = Icons.Filled.PlayArrow,
+                onClick = {
+                    if (isExpired || !bankExists) return@SoftButton
+                    val ids = buildSessionIds(repo, plan)
+                    if (pp == null || pp.sessionDate != today) {
+                        repo.initPlanSession(plan.id, ids, today, pp?.answeredIds ?: emptyList())
+                    }
+                    val startIdx = if (isStudy) pp?.sessionAnsweredCount ?: 0 else pp?.sessionBrowseIndex ?: 0
+                    val firstId = ids.getOrNull(startIdx)
+                    if (firstId != null) {
+                        val realMode = if (isStudy) plan.orderType else "browse"
+                        val remainingIds = ids.subList(startIdx, ids.size).joinToString(",") { "$plan.bankId::$it" }
+                        navController.navigate("${Routes.QUIZ}?bankId=${plan.bankId}&mode=$realMode&source=plan&planId=${plan.id}&questionIds=$remainingIds")
+                    }
+                },
+                enabled = !archived && !isExpired && bankExists
+            )
         }
     }
 }

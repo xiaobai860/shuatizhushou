@@ -1,6 +1,7 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.background
+import com.example.shuati.ui.theme.semantic
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,8 @@ import com.example.shuati.model.QuizHistory
 import com.example.shuati.ui.Routes
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.SectionTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,23 +51,20 @@ fun HistoryScreen(navController: NavController) {
     val sortedHistory = filteredHistory.sortedByDescending { it.finishedAt }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("答题历史") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ScreenTopBar(
+                "刷题历史",
+                onBack = { navController.popBackStack() },
+                subtitle = "共 ${history.size} 次记录",
                 actions = {
                     if (history.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
                             Icon(Icons.Filled.Delete, contentDescription = "清空历史")
                         }
                     }
-                    IconButton(onClick = {
-                        navController.navigate(Routes.STATS)
-                    }) {
+                    IconButton(onClick = { navController.navigate(Routes.STATS) }) {
                         Icon(Icons.Filled.BarChart, contentDescription = "统计")
                     }
                 }
@@ -116,34 +116,6 @@ fun HistoryScreen(navController: NavController) {
             val totalTime = sortedHistory.sumOf { it.durationSec ?: 0 }
             val avgTime = if (totalSessions > 0) String.format("%.1fs", totalTime.toFloat() / totalSessions) else "0s"
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        InfoItem("刷题次数", "$totalSessions")
-                        InfoItem("答题总量", "$totalQuestions")
-                        InfoItem("平均正确率", avgAccuracy)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        InfoItem("总用时", formatDuration(totalTime))
-                        InfoItem("平均用时", avgTime)
-                    }
-                }
-            }
-
             // 历史记录列表
             if (sortedHistory.isEmpty()) {
                 Box(
@@ -179,8 +151,13 @@ fun HistoryScreen(navController: NavController) {
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(sortedHistory, key = { it.id }) { record ->
-                        HistoryItem(record, banks, repo, navController)
+                    groupHistory(sortedHistory).forEach { (label, list) ->
+                        item(key = "hdr_$label") {
+                            SectionTitle(label, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+                        }
+                        items(list, key = { it.id }) { record ->
+                            HistoryItem(record, banks, repo, navController)
+                        }
                     }
                 }
             }
@@ -256,7 +233,7 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
                     text = "$acc%",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (acc >= 60) Color(0xFF4CAF50) else Color(0xFFFF5252)
+                    color = if (acc >= 60) MaterialTheme.semantic.success else MaterialTheme.semantic.error
                 )
             }
 
@@ -273,17 +250,17 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
                     DetailItem(
                         icon = Icons.Filled.CheckCircle,
                         text = "答对 ${record.correct}",
-                        color = Color(0xFF4CAF50)
+                        color = MaterialTheme.semantic.success
                     )
                     DetailItem(
                         icon = Icons.Filled.Cancel,
                         text = "答错 ${record.wrong}",
-                        color = Color(0xFFFF5252)
+                        color = MaterialTheme.semantic.error
                     )
                     DetailItem(
                         icon = Icons.Filled.Timer,
                         text = "用时 ${record.durationSec ?: 0}s",
-                        color = Color(0xFF2196F3)
+                        color = MaterialTheme.semantic.info
                     )
                 }
 
@@ -304,7 +281,7 @@ fun HistoryItem(record: QuizHistory, banks: List<QuestionBank>, repo: AppReposit
             LinearProgressIndicator(
                 progress = { acc / 100f },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = if (acc >= 60) Color(0xFF4CAF50) else Color(0xFFFF5252),
+                color = if (acc >= 60) MaterialTheme.semantic.success else MaterialTheme.semantic.error,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
         }
@@ -351,6 +328,19 @@ fun formatRelativeDate(timestamp: Long): String {
         minutes >= 1 -> "${minutes} 分钟前"
         else -> "刚刚"
     }
+}
+
+fun groupHistory(list: List<com.example.shuati.model.QuizHistory>): List<Pair<String, List<com.example.shuati.model.QuizHistory>>> {
+    if (list.isEmpty()) return emptyList()
+    val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val today = fmt.format(Date())
+    val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val yesterday = fmt.format(cal.time)
+    val order = mapOf("今天" to 0, "昨天" to 1, "更早" to 2)
+    return list.groupBy { rec ->
+        val d = fmt.format(Date(rec.finishedAt))
+        when (d) { today -> "今天"; yesterday -> "昨天"; else -> "更早" }
+    }.toList().sortedBy { order[it.first] ?: 9 }
 }
 
 fun formatDuration(seconds: Int): String {

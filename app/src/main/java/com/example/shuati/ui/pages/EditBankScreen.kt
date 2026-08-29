@@ -1,6 +1,7 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.layout.*
+import com.example.shuati.ui.theme.semantic
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,6 +27,7 @@ import com.example.shuati.model.QuestionType
 import com.example.shuati.ui.components.TagChip
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.example.shuati.ui.components.ScreenTopBar
 
 const val ITEMS_PER_PAGE = 50
 
@@ -103,14 +105,13 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
     }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text(currentBank.name) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ScreenTopBar(
+                currentBank.name,
+                onBack = { navController.popBackStack() },
+                subtitle = "${allQuestions.size} 题",
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "添加题目")
@@ -407,7 +408,7 @@ fun QuestionItem(question: Question, bankId: String, repo: AppRepository, onEdit
                 )
                 Spacer(Modifier.width(8.dp))
                 if (isMastered) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50))
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.semantic.success)
                 }
             }
 
@@ -416,7 +417,7 @@ fun QuestionItem(question: Question, bankId: String, repo: AppRepository, onEdit
                 Text(
                     text = "答案：${question.answer ?: ""}",
                     fontSize = 12.sp,
-                    color = if (isMastered) Color(0xFF4CAF50) else Color.Gray
+                    color = if (isMastered) MaterialTheme.semantic.success else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -446,8 +447,8 @@ fun QuestionItem(question: Question, bankId: String, repo: AppRepository, onEdit
                     Text("编辑", fontSize = 12.sp)
                 }
                 TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFFF5252))
-                    Text("删除", fontSize = 12.sp, color = Color(0xFFFF5252))
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.semantic.error)
+                    Text("删除", fontSize = 12.sp, color = MaterialTheme.semantic.error)
                 }
             }
         }
@@ -519,8 +520,8 @@ fun SuspectQuestionItem(
                     Text("编辑修正", fontSize = 12.sp)
                 }
                 TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFFF5252))
-                    Text("删除", fontSize = 12.sp, color = Color(0xFFFF5252))
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.semantic.error)
+                    Text("删除", fontSize = 12.sp, color = MaterialTheme.semantic.error)
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.clickable
+import com.example.shuati.ui.theme.semantic
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import kotlinx.coroutines.CoroutineScope
 import androidx.compose.runtime.*
@@ -26,6 +28,7 @@ import com.example.shuati.model.QuestionBank
 import com.example.shuati.model.FavoriteRecord
 import com.example.shuati.model.Question
 import com.example.shuati.ui.Routes
+import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.formatAnswerWithLabel
 import com.example.shuati.ui.components.typeLabel
@@ -57,14 +60,13 @@ fun FavoritesScreen(navController: NavController) {
     }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("收藏夹") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ScreenTopBar(
+                "收藏",
+                onBack = { navController.popBackStack() },
+                subtitle = "共 ${filtered.size} 题 · 想反复看的题都在这里",
                 actions = {
                     if (invalidFavorites.isNotEmpty()) {
                         IconButton(onClick = {
@@ -120,7 +122,7 @@ fun FavoritesScreen(navController: NavController) {
             if (invalidFavorites.isNotEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFFFFF3E0),
+                    color = MaterialTheme.semantic.warningContainer,
                     shape = RoundedCornerShape(0.dp)
                 ) {
                     Row(
@@ -128,11 +130,11 @@ fun FavoritesScreen(navController: NavController) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.semantic.warning, modifier = Modifier.size(18.dp))
                         Text(
                             "发现 ${invalidFavorites.size} 条失效收藏（题库已删除或题目不存在）",
                             fontSize = 13.sp,
-                            color = Color(0xFFE65100)
+                            color = MaterialTheme.semantic.onWarningContainer
                         )
                         Spacer(Modifier.weight(1f))
                         TextButton(
@@ -157,16 +159,26 @@ fun FavoritesScreen(navController: NavController) {
             } else {
                 val listState = rememberLazyListState()
                 // 批量练习（跨题库使用 source=favorite + questionIds）
-                Button(
+                Card(
                     onClick = {
                         val ids = filtered.joinToString(",") { "${it.bankId}::${it.questionId}" }
                         navController.navigate("${Routes.QUIZ}?mode=sequence&source=favorite&questionIds=$ids&showModeSelect=true")
                     },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.semantic.warningContainer)
                 ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("练习${if (selectedBankId != null) "当前题库" else "全部"}收藏（${filtered.size}题）")
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.PlayArrow, null, tint = MaterialTheme.semantic.warning, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("批量练习", fontSize = 14.5.sp, fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.semantic.onWarningContainer)
+                            Text("按当前筛选题库出题 · ${filtered.size} 题", fontSize = 11.sp,
+                                color = MaterialTheme.semantic.onWarningContainer.copy(alpha = 0.8f))
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.semantic.warning)
+                    }
                 }
                 LazyColumn(
                     state = listState,
@@ -315,16 +327,16 @@ fun QuestionCard(question: Question, showAnswer: Boolean = false) {
                             text = "$letter. ",
                             fontSize = 13.sp,
                             fontWeight = if (isCorrect) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCorrect) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface
+                            color = if (isCorrect) MaterialTheme.semantic.success else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = content,
                             fontSize = 13.sp,
-                            color = if (isCorrect) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface,
+                            color = if (isCorrect) MaterialTheme.semantic.success else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         )
                         if (isCorrect) {
-                            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.semantic.success, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

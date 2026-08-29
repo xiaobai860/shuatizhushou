@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,7 +24,10 @@ import com.example.shuati.model.QuestionType
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
+import com.example.shuati.ui.theme.semantic
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.HeroCard
+import com.example.shuati.ui.components.StatTile
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -123,7 +127,7 @@ fun StatsScreen(navController: NavController) {
         return h.toString() + "时" + if (rm > 0) rm.toString() + "分" else ""
     }
 
-    Scaffold(topBar = { ScreenTopBar("学习统计", onBack = { navController.popBackStack() }) }) { padding ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { ScreenTopBar("学习统计", onBack = { navController.popBackStack() }) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -150,34 +154,38 @@ fun StatsScreen(navController: NavController) {
             }
 
             // 核心数据卡片（渐变色）
+            // 总正确率 Hero + 统计块
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            StatCell("$overallAccFiltered%", "总正确率", Modifier.weight(1f))
-                            StatCell(totalAnsweredFiltered.toString(), "累计题目", Modifier.weight(1f))
-                            StatCell(formatTime(totalTimeFiltered), "总用时", Modifier.weight(1f))
+                HeroCard {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("总正确率", fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Text("$overallAccFiltered%", fontSize = 44.sp, fontWeight = FontWeight.Black,
+                            letterSpacing = (-2).sp, lineHeight = 50.sp,
+                            color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.TrendingUp, null, tint = MaterialTheme.semantic.success, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("累计刷题 $totalAnsweredFiltered 题", fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
-
-            // 详细指标
             item {
-                CardBox {
-                    Text("详细指标", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        DetailRow("刷题次数", "${totalSessions} 次")
-                        DetailRow("答对题数", "$totalCorrectFiltered / $totalAnsweredFiltered")
-                        DetailRow("最高正确率", "$bestAccuracy%")
-                        DetailRow("平均正确率", "$avgAccuracy%")
-                        DetailRow("平均用时/题", formatTime(avgTimePerQ))
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    StatTile(totalSessions.toString(), "刷题次数", Modifier.weight(1f))
+                    StatTile(totalAnsweredFiltered.toString(), "累计题目", Modifier.weight(1f))
+                    StatTile(formatTime(totalTimeFiltered), "总用时", Modifier.weight(1f))
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    StatTile("$bestAccuracy%", "最高正确率", Modifier.weight(1f), valueColor = MaterialTheme.semantic.success)
+                    StatTile("$avgAccuracy%", "平均正确率", Modifier.weight(1f))
+                    StatTile("$totalCorrectFiltered", "答对题数", Modifier.weight(1f))
                 }
             }
 

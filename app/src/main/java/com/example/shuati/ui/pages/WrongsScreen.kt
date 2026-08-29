@@ -1,5 +1,7 @@
 package com.example.shuati.ui.pages
 
+
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -22,6 +24,11 @@ import com.example.shuati.model.WrongRecord
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
+import com.example.shuati.ui.components.SectionTitle
+import com.example.shuati.ui.components.SoftButton
+import com.example.shuati.ui.theme.semantic
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Refresh
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.formatAnswerWithLabel
@@ -61,10 +68,13 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     val invalidRecords = records.filter { "${it.bankId}::${it.questionId}" !in validKeys }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ScreenTopBar(
-                if (bankId != null) "错题本" else "错题本",
+                "错题本",
                 onBack = { navController.popBackStack() },
+                subtitle = "共 ${records.size} 题 · 按答错次数排序",
                 actions = {
                     TextButton(onClick = { showTarget = true }) { Text("连对目标 $masteryTarget") }
                 }
@@ -97,26 +107,36 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
             if (records.isEmpty()) {
                 EmptyState("太棒了，暂时没有错题")
             } else {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // 全部重做强调卡
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.semantic.errorContainer)
                 ) {
-                    Text("共 ${displayRecords.size} 道错题", fontWeight = FontWeight.SemiBold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (displayRecords.isNotEmpty()) {
-                            IconButton(onClick = { showClearDialog = true }) {
-                                Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
-                            }
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Refresh, null, tint = MaterialTheme.semantic.error, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("全部重做", fontSize = 14.5.sp, fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.semantic.onErrorContainer)
+                            Text("连对 $masteryTarget 次自动移出错题本", fontSize = 11.sp,
+                                color = MaterialTheme.semantic.onErrorContainer.copy(alpha = 0.8f))
                         }
-                        Button(onClick = {
-                            // 错题重做：进入 quiz source=wrong
-                            navController.navigate("${Routes.QUIZ}?mode=sequence&source=wrong&showModeSelect=true")
-                        }) { Text("全部重做") }
+                        SoftButton(
+                            text = "开始",
+                            compact = true,
+                            modifier = Modifier.width(88.dp),
+                            onClick = {
+                                navController.navigate("${Routes.QUIZ}?mode=sequence&source=wrong&showModeSelect=true")
+                            }
+                        )
                     }
                 }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
+                    SectionTitle("待巩固", count = "共 ${displayRecords.size} 道")
+                }
                 LazyColumn(
-                    Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
@@ -226,6 +246,24 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                         }
                     }
                 }
+                    // 底部操作
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showClearDialog = true }) {
+                            Text("清空错题", color = MaterialTheme.semantic.error)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        SoftButton(
+                            text = "开始重做 ${displayRecords.size} 题",
+                            compact = true,
+                            modifier = Modifier.width(190.dp),
+                            onClick = {
+                                navController.navigate("${Routes.QUIZ}?mode=sequence&source=wrong&showModeSelect=true")
+                            }
+                        )
+                    }
             }
         }
     }

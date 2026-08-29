@@ -1,6 +1,9 @@
 package com.example.shuati.ui.pages
 
+
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -19,8 +22,12 @@ import com.example.shuati.model.QuestionType
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.EmptyState
+import com.example.shuati.ui.theme.semantic
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.HeroCard
 import com.example.shuati.ui.components.TagChip
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.foundation.background
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +44,8 @@ fun RecommendScreen(navController: NavController) {
     }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar("智能推荐", onBack = { navController.popBackStack() }) },
         floatingActionButton = {
             if (recommended.isNotEmpty())
@@ -59,21 +68,43 @@ fun RecommendScreen(navController: NavController) {
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
                 item {
+                    HeroCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("为你精选", fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(5.dp))
+                                Text("${recommended.size} 题", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.5).sp, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(4.dp))
+                                Text("综合错题、收藏、正确率与新题计算", fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
+                        }
+                    }
+                }
+                item {
+                    val errN = recommended.count { it.reason.startsWith("错题") }
+                    val warnN = recommended.count { it.reason == "已收藏" }
+                    val infoN = recommended.count { it.reason.contains("正确率") }
+                    val tertN = recommended.count { it.reason == "新题库探索" }
                     CardBox {
-                        Column {
-                            Text("推荐逻辑", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "1. 错题（间隔重复：越久未练越优先）\n" +
-                                        "2. 收藏题\n" +
-                                        "3. 低正确率题库（<70%）\n" +
-                                        "4. 新题库探索\n" +
-                                        "5. 题型多样性兜底\n\n" +
-                                        "共推荐 ${recommended.size} 题，综合分数越高越靠前。",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 18.sp
-                            )
+                        Text("推荐构成", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Box(Modifier.weight(errN.toFloat().coerceAtLeast(0.01f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.semantic.error))
+                            Box(Modifier.weight(warnN.toFloat().coerceAtLeast(0.01f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.semantic.warning))
+                            Box(Modifier.weight(infoN.toFloat().coerceAtLeast(0.01f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.semantic.info))
+                            Box(Modifier.weight(tertN.toFloat().coerceAtLeast(0.01f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.tertiary))
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LegendDot(MaterialTheme.semantic.error, "高频错题 $errN")
+                            LegendDot(MaterialTheme.semantic.warning, "收藏未掌握 $warnN")
+                            LegendDot(MaterialTheme.semantic.info, "低正确率 $infoN")
+                            LegendDot(MaterialTheme.colorScheme.tertiary, "新题 $tertN")
                         }
                     }
                 }
@@ -139,6 +170,15 @@ private fun RecItem(item: Recommend.RecommendItem, onClick: () -> Unit) {
                 if (item.bankName.isNotBlank()) TagChip(item.bankName)
             }
         }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

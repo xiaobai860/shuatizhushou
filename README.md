@@ -9,20 +9,24 @@
 | 类别 | 技术 |
 |---|---|
 | 语言 | Kotlin（JVM 17） |
-| UI | Jetpack Compose + Material 3（BOM 2025.01.00） |
-| 架构 | 单 Activity + Compose Navigation（navigation-compose 2.8.5） |
+| UI | Jetpack Compose + Material 3（BOM 2026.06.01），2026「柔光书桌」设计体系 |
+| 架构 | 单 Activity + Compose Navigation（navigation-compose 2.9.8） |
 | 存储 | DataStore Preferences（以 JSON 字符串持久化，等价复刻小程序 `storage.ts` 同步语义） |
 | 序列化 | kotlinx-serialization 1.7.3 |
 | Excel | Apache POI 5.3.0（导入解析 / 导出生成） |
-| SDK | minSdk 34 / targetSdk 36 / compileSdk 37 |
+| SDK | minSdk 34 / targetSdk 36 / compileSdk 36（AGP 8.9.2 上限） |
 
 当前版本：**v1.0.9**（versionCode 10）
+
+> **2026 UI 设计体系**（详见 `.impeccable.md` 与 `outputs/shuati-design-system.md`）：
+> 柔和渐变 · 亲和活力。主色陶土橙 `#C8551E`，中性色暖米灰；明暗双主题 + Material You 动态取色（默认开启，语义色锁定不取色）；底部导航为 M3 定制样式。
+> 已移除原液态玻璃（`io.github.kyant0:backdrop`）与极光背景组件。
 
 ---
 
 ## 应用图标
 
-靛蓝渐变背景 + 白色翻开的书 + 绿色对勾，贴合"刷题"主题（Adaptive Icon，`res/drawable/ic_launcher_background.xml` / `ic_launcher_foreground.xml`）。
+陶土橙渐变背景 + 白色翻开的书 + 绿色对勾，贴合"刷题"主题与品牌主色（Adaptive Icon，`res/drawable/ic_launcher_background.xml` / `ic_launcher_foreground.xml`）。
 
 ---
 

@@ -88,6 +88,8 @@ fun LibraryScreen(navController: NavController) {
     }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Row(
                 modifier = Modifier.fillMaxWidth(),

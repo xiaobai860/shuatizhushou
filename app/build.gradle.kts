@@ -2,11 +2,13 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
     namespace = "com.example.shuati"
-    compileSdk = 37
+    // AGP 8.9.2 官方支持上限为 36（本机无 android-37 稳定平台；代码未使用 API 37 专属符号）
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.shuati"
@@ -35,14 +37,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material.ExperimentalMaterialApi"
-        )
-    }
-
     buildFeatures {
         compose = true
     }
@@ -54,15 +48,25 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.material.ExperimentalMaterialApi"
+        )
+    }
+}
+
 dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.multidex:multidex:2.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.activity:activity-compose:1.10.0")
+    implementation("androidx.activity:activity-compose:1.13.0")
 
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2025.01.00")
+    // Compose BOM（1.11.x 与 AGP 8.9 兼容；backdrop 需要 Compose ≥1.11）
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -72,7 +76,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Navigation
-    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.navigation:navigation-compose:2.9.8")
 
     // DataStore (preferences + protobuf not needed; we store JSON via Preferences)
     implementation("androidx.datastore:datastore-preferences:1.1.1")

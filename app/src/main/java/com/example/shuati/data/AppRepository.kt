@@ -1,6 +1,9 @@
 package com.example.shuati.data
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -41,6 +44,7 @@ class AppRepository(private val context: Context) {
         private val MASTERY_TARGET_KEY = stringPreferencesKey("wrong_mastery_target")
         private val MASTERY_STREAKS_KEY = stringPreferencesKey("wrong_mastery_streaks")
         private val DEDUP_THRESHOLD_KEY = stringPreferencesKey("dedup_threshold")
+        private val DYNAMIC_COLOR_KEY = stringPreferencesKey("dynamic_color")
     }
 
     // ─── 通用读写（类型安全，避免泛型擦除） ──────────────────────
@@ -167,6 +171,16 @@ class AppRepository(private val context: Context) {
         return v.toIntOrNull()?.takeIf { it > 0 } ?: 3
     }
     fun saveMasteryTarget(n: Int) = writeString(MASTERY_TARGET_KEY, n.toString())
+
+    // ─── 偏好：动态取色（Compose 状态，开关即时生效） ─────────────
+    var dynamicColor: Boolean by mutableStateOf(
+        runBlocking { context.dataStore.data.first()[DYNAMIC_COLOR_KEY] ?: "1" == "1" }
+    )
+        private set
+    fun saveDynamicColor(enabled: Boolean) {
+        dynamicColor = enabled
+        writeString(DYNAMIC_COLOR_KEY, if (enabled) "1" else "0")
+    }
 
     fun getMasteryStreaks(): Map<String, Int> {
         val raw = readString(MASTERY_STREAKS_KEY, "{}")
@@ -382,7 +396,8 @@ class AppRepository(private val context: Context) {
             settings = AppSettings(
                 masteryTarget = getMasteryTarget(),
                 masteryStreaks = getMasteryStreaks(),
-                dedupThreshold = getDedupThreshold()
+                dedupThreshold = getDedupThreshold(),
+                dynamicColor = dynamicColor
             )
         )
     }
@@ -472,12 +487,14 @@ class AppRepository(private val context: Context) {
                 saveMasteryTarget(data.settings.masteryTarget)
                 saveMasteryStreaks(data.settings.masteryStreaks)
                 saveDedupThreshold(data.settings.dedupThreshold)
+                saveDynamicColor(data.settings.dynamicColor)
             } else {
                 if (readString(MASTERY_TARGET_KEY, "") == "") saveMasteryTarget(data.settings.masteryTarget)
                 val localStreaks = getMasteryStreaks()
                 val merged = data.settings.masteryStreaks + localStreaks  // 本地优先
                 saveMasteryStreaks(merged)
                 if (readString(DEDUP_THRESHOLD_KEY, "") == "") saveDedupThreshold(data.settings.dedupThreshold)
+                if (readString(DYNAMIC_COLOR_KEY, "") == "") saveDynamicColor(data.settings.dynamicColor)
             }
         }
 

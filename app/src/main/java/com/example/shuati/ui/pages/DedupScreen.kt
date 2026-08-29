@@ -1,6 +1,7 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.clickable
+import com.example.shuati.ui.theme.semantic
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import com.example.shuati.ui.components.ScreenTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,15 +87,10 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
     }
 
     Scaffold(
+
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("查重") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
+            ScreenTopBar("查重检测", onBack = { navController.popBackStack() }, subtitle = "仅在同题型之间比对")
         }
     ) { padding ->
         Column(
@@ -324,11 +321,11 @@ fun DuplicateGroupCard(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.padding(top = 4.dp)
                             ) {
-                                Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(12.dp))
+                                Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.semantic.warning, modifier = Modifier.size(12.dp))
                                 Text(
                                     "题型混合（${questionTypes.joinToString(" / ") { getTypeLabel(it) }}）",
                                     fontSize = 11.sp,
-                                    color = Color(0xFFFF9800)
+                                    color = MaterialTheme.semantic.warning
                                 )
                             }
                         }
@@ -339,8 +336,8 @@ fun DuplicateGroupCard(
                 if (group.size > 1) {
                     val avgSim = group.drop(1).map { (_, q) -> calculateSimilarity(group[0].second, q) }.average()
                     val simColor = when {
-                        avgSim >= 0.95 -> Color(0xFFFF5252)
-                        avgSim >= 0.85 -> Color(0xFFFF9800)
+                        avgSim >= 0.95 -> MaterialTheme.semantic.error
+                        avgSim >= 0.85 -> MaterialTheme.semantic.warning
                         else -> MaterialTheme.colorScheme.primary
                     }
                     Badge(
@@ -368,12 +365,12 @@ fun DuplicateGroupCard(
                     if (isReference) {
                         Surface(
                             shape = MaterialTheme.shapes.small,
-                            color = Color(0xFFE3F2FD)
+                            color = MaterialTheme.semantic.infoContainer
                         ) {
                             Text(
                                 "参考题",
                                 fontSize = 10.sp,
-                                color = Color(0xFF1565C0),
+                                color = MaterialTheme.semantic.info,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -417,7 +414,7 @@ fun DuplicateGroupCard(
                             Icon(
                                 Icons.Filled.DeleteOutline,
                                 contentDescription = "删除",
-                                tint = Color(0xFFFF5252),
+                                tint = MaterialTheme.semantic.error,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
