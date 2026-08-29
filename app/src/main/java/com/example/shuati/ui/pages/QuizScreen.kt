@@ -1384,7 +1384,6 @@ private fun resolveBankName(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-@Suppress("DEPRECATION") // 本 BOM（material3 1.3.1）尚未提供 rememberTooltipPositionProvider，保留原有调用
 private fun SemanticIconButton(
     icon: ImageVector,
     contentDescription: String,
@@ -1396,7 +1395,7 @@ private fun SemanticIconButton(
 ) {
     val tooltipState = rememberTooltipState()
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(tooltip) } },
         state = tooltipState,
         modifier = modifier
