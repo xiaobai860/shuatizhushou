@@ -4,6 +4,7 @@ import android.app.Activity
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -110,6 +111,9 @@ fun AppNavHost() {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // 顶层导航壳：不自己加系统栏 padding（各页面顶部栏自行 statusBarsPadding，
+        // 底部导航 NavigationBar 自行处理导航栏 inset），避免状态栏高度被算两次导致标题下移
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (currentRoute in topLevelRoutes) {
                 SoftBottomBar(

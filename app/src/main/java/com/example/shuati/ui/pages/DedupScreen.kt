@@ -89,6 +89,7 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar("查重检测", onBack = { navController.popBackStack() }, subtitle = "仅在同题型之间比对")
         }
@@ -218,6 +219,13 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    // 算法说明
+                    Text(
+                        "算法说明：仅在同题型（单选/多选/判断/填空）之间比对，按题干关键词相似度评分，超过阈值的题目归为一组；批量清除会保留每组第 1 题，并同步清理关联的错题与收藏。",
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                    )
                 }
             }
 

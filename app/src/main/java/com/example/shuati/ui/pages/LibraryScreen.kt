@@ -90,6 +90,7 @@ fun LibraryScreen(navController: NavController) {
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -115,8 +116,8 @@ fun LibraryScreen(navController: NavController) {
         },
         floatingActionButton = {
             if (selectedIds.isEmpty()) {
-                FloatingActionButton(onClick = { navController.navigate(Routes.EDIT_BANK) }) {
-                    Icon(Icons.Filled.Add, contentDescription = "新增")
+                FloatingActionButton(onClick = { navController.navigate(Routes.IMPORT) }) {
+                    Icon(Icons.Filled.Upload, contentDescription = "导入题库")
                 }
             }
         },
@@ -215,6 +216,14 @@ fun LibraryScreen(navController: NavController) {
                                 Spacer(Modifier.height(4.dp))
                                 Text("${bank.questions.size} 题" + if (wrongCount > 0) " · $wrongCount 错题" else "",
                                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (bank.updatedAt > 0) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        "更新于 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                                            .format(java.util.Date(bank.updatedAt)),
+                                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    )
+                                }
                                 if (completed) {
                                     Spacer(Modifier.height(4.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {

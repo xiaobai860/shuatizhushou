@@ -55,7 +55,9 @@ fun SearchScreen(navController: NavController) {
         }
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
+        topBar = {
         ScreenTopBar("题目搜索", onBack = { navController.popBackStack() }, subtitle = "关键词 · 标签筛选")
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {

@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
@@ -33,9 +34,13 @@ import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.model.QuestionType
 import com.example.shuati.ui.*
+import com.example.shuati.ui.components.Badge
+import com.example.shuati.ui.components.HeroCard
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.SectionTitle
 import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.CardBox
+import com.example.shuati.ui.components.ThinProgress
 import kotlinx.coroutines.delay
 import java.util.UUID
 import com.example.shuati.ui.theme.semantic
@@ -85,10 +90,14 @@ fun QuizScreen(
 
     // 只刷未做题：本地可切换（初始取导航参数，如结果页「只刷未做」入口）
     var filterLocal by remember { mutableStateOf(filterUnanswered) }
+    // 练习设置：跳过残缺题（默认开，buildQueue 已按 incomplete 过滤，此处为显式开关）
+    var skipIncomplete by remember { mutableStateOf(true) }
+    // 模式选择页：当前选中的模式（卡片高亮），点「开始刷题」才真正进入
+    var selectedMode by remember { mutableStateOf("sequence") }
 
     // 计算本次作答序列（含真实 bankId）
-    val queue = remember(bankId, selMode, source, planId, filterLocal, specifiedQuestions) {
-        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions)
+    val queue = remember(bankId, selMode, source, planId, filterLocal, skipIncomplete, specifiedQuestions) {
+        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions, skipIncomplete)
     }
 
     var index by remember { mutableStateOf(0) }
@@ -142,32 +151,67 @@ fun QuizScreen(
             else -> 0
         }
         val hasProgress = doneCount > 0 || (bankId != null && (repo.getBrowseProgress(bankId) ?: 0) > 0)
-        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { ScreenTopBar("选择刷题模式", onBack = { navController.popBackStack() }) }) { padding ->
+        val browseIdx = bankId?.let { repo.getBrowseProgress(it) } ?: 0
+        val pct = if (bankTotal > 0) (doneCount * 100 / bankTotal) else 0
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets.navigationBars,
+            topBar = { ScreenTopBar("选择刷题模式", onBack = { navController.popBackStack() }) }
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
             Column(
-                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(bankName.ifEmpty { "题库" }, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("共 $bankTotal 道题，请选择刷题模式", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 题库概要卡
+                HeroCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Filled.Layers, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(bankName.ifEmpty { "题库" }, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(3.dp))
+                            Text("共 $bankTotal 题 · 已答 $doneCount 题 · 剩余 ${(bankTotal - doneCount).coerceAtLeast(0)} 题",
+                                fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("$pct%", fontSize = 19.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp,
+                                color = MaterialTheme.colorScheme.onSurface)
+                            Text("进度", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    ThinProgress(progress = if (bankTotal > 0) doneCount.toFloat() / bankTotal else 0f)
+                }
 
+                SectionTitle("选择模式")
+
+                // 模式卡片（选中高亮，点「开始刷题」确认）
+                data class ModeSpec(val m: String, val label: String, val desc: String, val isSeq: Boolean)
                 listOf(
-                    "sequence" to "顺序模式" to "从第一题开始，按顺序作答",
-                    "random" to "随机模式" to "随机打乱顺序作答",
-                    "browse" to "浏览模式" to "直接显示答案，逐题浏览"
-                ).forEach { (pair, desc) ->
-                    val m = pair.first
-                    val label = pair.second
-                    val selected = selMode == m
+                    ModeSpec("sequence", "顺序刷题", "按题库原始顺序作答", doneCount > 0),
+                    ModeSpec("random", "随机刷题", "打乱顺序，适合查漏补缺", false),
+                    ModeSpec("browse", "浏览模式", "直接看答案与解析，不计分", false)
+                ).forEach { (m, label, desc, isSeq) ->
+                    val selected = selectedMode == m
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .border(
                                 width = if (selected) 2.dp else 0.dp,
                                 color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                                shape = RoundedCornerShape(20.dp)
                             )
-                            .clickable { selMode = m },
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                            .clickable { selectedMode = m },
+                        shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(
                             defaultElevation = if (selected) 6.dp else 2.dp
@@ -177,7 +221,7 @@ fun QuizScreen(
                             Box(
                                 Modifier
                                     .size(40.dp)
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                    .clip(RoundedCornerShape(13.dp))
                                     .background(
                                         if (selected) MaterialTheme.colorScheme.primaryContainer
                                         else MaterialTheme.colorScheme.surfaceContainer
@@ -198,8 +242,27 @@ fun QuizScreen(
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                                Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                    if (isSeq && !selected) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Badge("推荐", color = MaterialTheme.colorScheme.primaryContainer,
+                                            textColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    }
+                                }
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    when {
+                                        m == "sequence" && doneCount > 0 -> "从第 ${doneCount + 1} 题继续"
+                                        m == "browse" && browseIdx > 0 -> "上次浏览到第 $browseIdx 题"
+                                        else -> desc
+                                    },
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (m == "browse" && browseIdx > 0) {
+                                    Text("上次浏览到第 $browseIdx 题", fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                             if (selected) {
                                 Text("已选", fontSize = 11.sp, fontWeight = FontWeight.Bold,
@@ -209,44 +272,94 @@ fun QuizScreen(
                     }
                 }
 
-                // 跳过已答题目 / 继续浏览（有进度时显示）
-                if (!filterUnanswered || hasProgress) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
-                            .toggleable(value = filterLocal, onValueChange = { filterLocal = it })
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Switch(checked = filterLocal, onCheckedChange = { filterLocal = it })
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("跳过已答题目 / 继续浏览", fontWeight = FontWeight.Medium)
-                            if (doneCount > 0)
-                                Text("已答 $doneCount / $bankTotal 题", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                SectionTitle("练习设置")
+
+                // 跳过残缺题目
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .toggleable(value = skipIncomplete, onValueChange = { skipIncomplete = it })
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("跳过残缺题目", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("自动略过缺少选项或答案的题", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Switch(checked = skipIncomplete, onCheckedChange = { skipIncomplete = it })
+                }
+                // 只刷未做过的题
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .toggleable(value = filterLocal, onValueChange = { filterLocal = it })
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("只刷未做过的题", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text(
+                            if (doneCount > 0) "本次共 ${(bankTotal - doneCount).coerceAtLeast(0)} 题"
+                            else "本次共 $bankTotal 题",
+                            fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = filterLocal, onCheckedChange = { filterLocal = it })
+                }
+                // 填空不限答案顺序
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .toggleable(value = true, onValueChange = {})
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("填空不限答案顺序", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("答填空多空时按任意顺序匹配", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = true, onCheckedChange = {})
                 }
 
-                // 清除进度
-                if (hasProgress) {
-                    OutlinedButton(
+                Spacer(Modifier.height(4.dp))
+            }
+
+            // 底部操作栏：开始刷题
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
                         onClick = {
                             when {
                                 bankId == "__all__" || source == "all" -> repo.clearProgress("__all__")
                                 bankId != null -> repo.clearProgress(bankId)
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) { Text("清除刷题进度") }
+                        enabled = hasProgress
+                    ) {
+                        Text("清除进度", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Button(
+                        onClick = { selMode = selectedMode },
+                        modifier = Modifier.width(180.dp)
+                    ) { Text("开始刷题") }
                 }
             }
+        }
         }
         return
     }
 
     if (queue.isEmpty()) {
-        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { ScreenTopBar("答题", onBack = { navController.popBackStack() }) }) {
+        Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
+        topBar = { ScreenTopBar("答题", onBack = { navController.popBackStack() }) }) {
             Box(Modifier.fillMaxSize().padding(it), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("没有可作答的题目")
@@ -264,6 +377,19 @@ fun QuizScreen(
 
     val current = queue[index]
 
+    // 会话结果收集（结果页展示用）：进入时重置，记录同题库上次正确率与已有错题
+    val sessionInitialized = remember { mutableStateOf(false) }
+    if (!sessionInitialized.value) {
+        sessionInitialized.value = true
+        QuizSessionResult.reset()
+        val histBankId0 = if (source == "all" || bankId == "__all__") "__all__" else bankId
+        QuizSessionResult.prevAccuracy = repo.getHistoryRecords()
+            .filter { it.bankId == histBankId0 && !(mode == "browse") }
+            .maxByOrNull { it.finishedAt }?.accuracy
+        QuizSessionResult.newWrongCount = 0
+    }
+    var existingWrongKeys = remember { repo.getWrongRecords().map { "${it.bankId}::${it.questionId}" }.toSet() }
+
     // 状态
     var selected by remember(current.q.id) { mutableStateOf(initialAnswer(current.q)) }
     var submitted by remember(current.q.id) { mutableStateOf(isBrowse) } // 浏览模式默认“已展示”
@@ -273,6 +399,8 @@ fun QuizScreen(
     var correctCount by remember { mutableStateOf(0) }
     var wrongCount by remember { mutableStateOf(0) }
     val answeredThisSession = remember { mutableStateListOf<String>() }
+    // 每题对错记录（上一题回退时撤销计数用）
+    val answeredMap = remember { mutableStateMapOf<String, Boolean>() }
     var finished by remember { mutableStateOf(false) }
     var favState by remember(current.q.id) { mutableStateOf(repo.isFavorite(current.bankId, current.q.id)) }
     var showExitConfirm by remember { mutableStateOf(false) }
@@ -339,6 +467,8 @@ fun QuizScreen(
         if (isBrowse) return // 浏览模式不记录判分/错题/进度
         val q = current.q
         val fromWrongs = source == "wrong"
+        // 每题正确率统计（结果页/答题页展示用）
+        repo.recordQuestionResult(current.bankId, q.id, correct)
         if (correct && fromWrongs) {
             // 错题练习：连对计数，达标自动移出错题本（对齐小程序 incrementStreak/removeWrongRecord）
             val streak = repo.incrementStreak(current.bankId, q.id)
@@ -377,6 +507,7 @@ fun QuizScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar(
                 bankName.ifEmpty { if (isBrowse) "浏览" else "答题" },
@@ -581,7 +712,8 @@ fun QuizScreen(
                         q = current.q,
                         correct = judgeAnswer(current.q, selected),
                         fillSlotN = fillSlotN,
-                        fillOrderFree = fillOrderFree
+                        fillOrderFree = fillOrderFree,
+                        qStat = repo.getQuestionStats()["${current.bankId}::${current.q.id}"]
                     )
                 }
             }
@@ -613,38 +745,83 @@ fun QuizScreen(
                         submitted = true
                         if (correct) correctCount++ else wrongCount++
                         answeredThisSession.add(current.q.id)
+                        answeredMap[current.q.id] = correct
+                        // 收集分题型统计
+                        val tName = typeLabel(current.q.type)
+                        val tIdx = QuizSessionResult.typeStats.indexOfFirst { it.type == tName }
+                        QuizSessionResult.typeStats = if (tIdx >= 0) {
+                            QuizSessionResult.typeStats.mapIndexed { i, s ->
+                                if (i == tIdx) s.copy(correct = s.correct + if (correct) 1 else 0, total = s.total + 1) else s
+                            }
+                        } else {
+                            QuizSessionResult.typeStats + TypeStat(
+                                tName, if (correct) 1 else 0, 1
+                            )
+                        }
+                        // 收集错题明细 + 新错题计数
+                        if (!correct) {
+                            val userAnsText = formatUserAnswer(current.q, selected, fillInputs)
+                            repo.recordWrongAnswer(current.bankId, current.q.id, userAnsText)
+                            if ("${current.bankId}::${current.q.id}" !in existingWrongKeys) {
+                                QuizSessionResult.newWrongCount++
+                                existingWrongKeys = existingWrongKeys + "${current.bankId}::${current.q.id}"
+                            }
+                            QuizSessionResult.wrongDetails = QuizSessionResult.wrongDetails + WrongDetail(
+                                bankName = bankName,
+                                question = current.q.question,
+                                userAnswer = formatUserAnswer(current.q, selected, fillInputs),
+                                correctAnswer = formatAnswer(current.q),
+                                explanation = current.q.explanation.orEmpty()
+                            )
+                        }
                     }, modifier = Modifier.weight(2f)) { Text("提交") }
                 } else {
-                    Button(
-                        onClick = {
-                            if (index >= queue.lastIndex) {
-                                finished = true
-                                val histBankId = if (source == "all" || bankId == "__all__") "__all__" else (bankId ?: "__all__")
-                                val total = answeredThisSession.size
-                                val acc = if (total > 0) (correctCount * 100 / total) else 0
-                                repo.addHistoryRecord(
-                                    com.example.shuati.model.QuizHistory(
-                                        id = UUID.randomUUID().toString(),
-                                        bankId = histBankId, bankName = bankName,
-                                        total = total, correct = correctCount,
-                                        wrong = wrongCount, durationSec = elapsed, mode = mode,
-                                        accuracy = acc, finishedAt = System.currentTimeMillis(),
-                                        createdAt = System.currentTimeMillis()
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // 上一题：回退到前一题重答（撤销该题计数）
+                        if (index > 0) {
+                            OutlinedButton(
+                                onClick = {
+                                    val prevId = queue[index - 1].q.id
+                                    answeredMap.remove(prevId)?.let { if (it) correctCount-- else wrongCount-- }
+                                    answeredThisSession.remove(prevId)
+                                    index--
+                                    submitted = false
+                                    questionElapsed = 0
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("上一题") }
+                        }
+                        Button(
+                            onClick = {
+                                if (index >= queue.lastIndex) {
+                                    finished = true
+                                    val histBankId = if (source == "all" || bankId == "__all__") "__all__" else (bankId ?: "__all__")
+                                    val total = answeredThisSession.size
+                                    val acc = if (total > 0) (correctCount * 100 / total) else 0
+                                    repo.addHistoryRecord(
+                                        com.example.shuati.model.QuizHistory(
+                                            id = UUID.randomUUID().toString(),
+                                            bankId = histBankId, bankName = bankName,
+                                            total = total, correct = correctCount,
+                                            wrong = wrongCount, durationSec = elapsed, mode = mode,
+                                            accuracy = acc, finishedAt = System.currentTimeMillis(),
+                                            createdAt = System.currentTimeMillis()
+                                        )
                                     )
-                                )
-                                navController.navigate(
-                                    "${Routes.RESULT}?bankId=$histBankId&mode=$mode&source=$source&planId=$planId" +
-                                            "&correct=$correctCount&wrong=$wrongCount&total=${answeredThisSession.size}&duration=$elapsed"
-                                ) { popUpTo(Routes.QUIZ) { inclusive = true } }
-                            } else {
-                                index++
-                                submitted = false
-                                questionElapsed = 0
-                                selected = initialAnswer(queue[index].q)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (index >= queue.lastIndex) "查看结果" else "下一题") }
+                                    navController.navigate(
+                                        "${Routes.RESULT}?bankId=$histBankId&mode=$mode&source=$source&planId=$planId" +
+                                                "&correct=$correctCount&wrong=$wrongCount&total=${answeredThisSession.size}&duration=$elapsed"
+                                    ) { popUpTo(Routes.QUIZ) { inclusive = true } }
+                                } else {
+                                    index++
+                                    submitted = false
+                                    questionElapsed = 0
+                                    selected = initialAnswer(queue[index].q)
+                                }
+                            },
+                            modifier = Modifier.weight(2f)
+                        ) { Text(if (index >= queue.lastIndex) "查看结果" else "下一题") }
+                    }
                 }
             }
         }
@@ -749,7 +926,8 @@ private fun AnswerPanel(
     q: Question,
     correct: Boolean,
     fillSlotN: Int,
-    fillOrderFree: Boolean
+    fillOrderFree: Boolean,
+    qStat: String? = null
 ) {
     CardBox {
         if (isBrowse) {
@@ -820,6 +998,35 @@ private fun AnswerPanel(
             }
             Spacer(Modifier.height(8.dp))
             Text("正确答案：${formatAnswer(q)}", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            // 你的答案 + 该题正确率
+            Spacer(Modifier.height(10.dp))
+            Row {
+                Column(Modifier.weight(1f)) {
+                    Text("你的答案", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        if (correct) formatAnswer(q) else "（未答对）",
+                        fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (correct) MaterialTheme.semantic.success else MaterialTheme.semantic.error
+                    )
+                }
+                val statArr = qStat?.split(",")
+                if (statArr != null && statArr.size == 2) {
+                    val c = statArr[0].toIntOrNull() ?: 0
+                    val t = statArr[1].toIntOrNull() ?: 0
+                    if (t > 0) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("该题正确率", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "${c * 100 / t}%",
+                                fontSize = 13.5.sp, fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.semantic.info
+                            )
+                        }
+                    }
+                }
+            }
             if (q.type == QuestionType.fill && fillSlotN > 1) {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -851,6 +1058,25 @@ private fun formatAnswer(q: Question): String = when (q.type) {
     else -> q.answer ?: ""
 }
 
+/** 格式化用户答案（结果页错题明细展示用） */
+private fun formatUserAnswer(
+    q: Question,
+    selected: Any?,
+    fillInputs: List<String>
+): String = when (q.type) {
+    QuestionType.single, QuestionType.multiple -> {
+        val chosen = (selected as? Set<*>)?.filterIsInstance<Int>()?.toSet() ?: emptySet()
+        if (chosen.isEmpty()) "未作答"
+        else chosen.sorted().joinToString("") { ('A' + it).toString() } + " " +
+                chosen.sorted().joinToString("、") { q.options?.get(it) ?: "" }
+    }
+    QuestionType.judge -> when (selected) {
+        true -> "正确"; false -> "错误"; else -> "未作答"
+    }
+    QuestionType.fill -> fillInputs.map { it.trim() }.joinToString("、").ifEmpty { "未作答" }
+    else -> (selected as? String)?.trim().orEmpty().ifEmpty { "未作答" }
+}
+
 private fun resolveBankName(
     repo: AppRepository,
     source: String,
@@ -873,7 +1099,8 @@ private fun buildQueue(
     source: String,
     planId: String?,
     filterUnanswered: Boolean,
-    specifiedQuestions: List<Pair<String, com.example.shuati.model.Question>> = emptyList()
+    specifiedQuestions: List<Pair<String, com.example.shuati.model.Question>> = emptyList(),
+    skipIncomplete: Boolean = true
 ): List<QuizItem> {
     val effectiveMode = if (source == "all" || source == "browse") "sequence" else mode
     // 优先使用指定的题目列表（来自 questionIds 参数）
@@ -886,17 +1113,17 @@ private fun buildQueue(
     }
     return when (source) {
         "wrong" -> repo.getWrongRecords().mapNotNull { rec ->
-            rec.question?.let { QuizItem(rec.bankId, it) }
+            rec.question?.takeIf { q -> !skipIncomplete || !q.incomplete }?.let { QuizItem(rec.bankId, it) }
         }
         "favorite" -> repo.getFavoriteRecords().mapNotNull { rec ->
-            rec.question?.let { QuizItem(rec.bankId, it) }
+            rec.question?.takeIf { q -> !skipIncomplete || !q.incomplete }?.let { QuizItem(rec.bankId, it) }
         }
         "all" -> {
             // 全部题库：跨题库聚合；只刷未做题时按 __all__ 进度（namespaced）过滤
             val banks = repo.getBanks()
             // 跳过不完整题目（选项/答案缺失），与小程序一致
             val all = banks.flatMap { b ->
-                b.questions.filter { !it.incomplete }.map { QuizItem(b.id, it) }
+                b.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(b.id, it) }
             }
             val base = if (filterUnanswered) {
                 val doneSet = repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet()
@@ -916,9 +1143,9 @@ private fun buildQueue(
             val isAll = bankId == "__all__"
             val bank = if (isAll) null else bankId?.let { repo.getBankById(it) }
             var base = when {
-                bank != null -> bank.questions.filter { !it.incomplete }.map { QuizItem(bank.id, it) }
+                bank != null -> bank.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(bank.id, it) }
                 isAll -> repo.getBanks().flatMap { b ->
-                    b.questions.filter { !it.incomplete }.map { QuizItem(b.id, it) }
+                    b.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(b.id, it) }
                 }
                 else -> emptyList()
             }

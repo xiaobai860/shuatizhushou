@@ -42,6 +42,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     var masteryTarget by remember { mutableStateOf(repo.getMasteryTarget()) }
     var showTarget by remember { mutableStateOf(false) }
     var selectedTag by remember { mutableStateOf<String?>(null) }
+    var selectedType by remember { mutableStateOf<com.example.shuati.model.QuestionType?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     val allTags = remember { repo.getAllTags() }
     val banks = remember { repo.getBanks() }
@@ -57,8 +58,28 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     }
     LaunchedEffect(Unit) { reload() }
 
-    fun getFilteredRecords(): List<WrongRecord> = if (selectedTag == null) records
-    else records.filter { rec -> (rec.question?.tags ?: emptyList()).contains(selectedTag) }
+    // 题型计数（chips 展示用）
+    val typeCounts = remember(records) {
+        records.groupingBy { it.question?.type ?: com.example.shuati.model.QuestionType.single }
+            .eachCount()
+    }
+    val typeFilters = listOf(
+        null to "全部",
+        com.example.shuati.model.QuestionType.single to "单选",
+        com.example.shuati.model.QuestionType.multiple to "多选",
+        com.example.shuati.model.QuestionType.judge to "判断",
+        com.example.shuati.model.QuestionType.fill to "填空",
+        com.example.shuati.model.QuestionType.essay to "简答"
+    )
+
+    fun getFilteredRecords(): List<WrongRecord> {
+        var list = if (selectedTag == null) records
+        else records.filter { rec -> (rec.question?.tags ?: emptyList()).contains(selectedTag) }
+        if (selectedType != null) {
+            list = list.filter { it.question?.type == selectedType }
+        }
+        return list
+    }
 
     // 排序：答错次数降序，次数相同按记录时间升序（最早记录在前）
     val displayRecords = getFilteredRecords().sortedWith(
@@ -70,6 +91,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar(
                 "错题本",
@@ -82,6 +104,23 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // 题型筛选行
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp)
+            ) {
+                typeFilters.forEach { (t, label) ->
+                    val count = if (t == null) records.size else (typeCounts[t] ?: 0)
+                    FilterChip(
+                        selected = selectedType == t,
+                        onClick = { selectedType = if (selectedType == t) null else t },
+                        label = { Text("$label $count") }
+                    )
+                }
+            }
             if (allTags.isNotEmpty()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -188,6 +227,18 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                                                     color = MaterialTheme.colorScheme.primary
                                                 )
                                             }
+                                        }
+                                        // 错误历史（你选过 XX）
+                                        val wrongHistory = remember(rec.bankId, rec.questionId, records) {
+                                            repo.getWrongAnswers(rec.bankId, rec.questionId)
+                                        }
+                                        if (wrongHistory.isNotEmpty()) {
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(
+                                                "你选过：${wrongHistory.distinct().joinToString("、")}",
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
                                     IconButton(onClick = {

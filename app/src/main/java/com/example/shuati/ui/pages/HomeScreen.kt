@@ -58,6 +58,7 @@ fun HomeScreen(navController: NavController) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
         topBar = { HomeTopBar(streak = todayStreak) }
     ) { padding ->
         LazyColumn(
@@ -222,18 +223,25 @@ fun HomeScreen(navController: NavController) {
 /** 顶部问候栏：问候 + 连续天数 + 头像 */
 @Composable
 private fun HomeTopBar(streak: Int) {
-    TopAppBar(
-        title = {
-            Column {
-                Text("下午好", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(60.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("下午好", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp, lineHeight = 24.sp)
                 Text(
                     if (streak > 0) "已连续打卡 $streak 天" else "今天也来刷几道吧",
                     fontSize = 11.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 15.sp
                 )
             }
-        },
-        actions = {
             IconButton(onClick = { /* 通知预留 */ }) {
                 Icon(Icons.Filled.Notifications, contentDescription = "通知", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -252,9 +260,8 @@ private fun HomeTopBar(streak: Int) {
                     fontWeight = FontWeight.Bold
                 )
             }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-    )
+        }
+    }
 }
 
 /** Hero 右侧环形打卡标 */

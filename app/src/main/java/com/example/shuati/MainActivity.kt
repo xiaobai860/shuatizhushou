@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -17,9 +18,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // 动态取色偏好来自「我的」页开关（Compose 状态，切换即时生效）
             val repo = (application as ShuatiApplication).repository
-            ShuatiTheme(dynamicColor = repo.dynamicColor) {
+            // 主题模式："system" 跟随系统 / "light" 浅色 / "dark" 深色
+            val darkTheme = when (repo.themeMode) {
+                "light" -> false
+                "dark" -> true
+                else -> isSystemInDarkTheme()
+            }
+            ShuatiTheme(darkTheme = darkTheme, dynamicColor = repo.dynamicColor) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

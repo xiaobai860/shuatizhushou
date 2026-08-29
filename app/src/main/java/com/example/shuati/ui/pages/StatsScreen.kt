@@ -74,6 +74,29 @@ fun StatsScreen(navController: NavController) {
         (totalCorrectFiltered * 100 / totalAnsweredFiltered) else 0
     val avgTimePerQ = if (totalAnsweredFiltered > 0) totalTimeFiltered / totalAnsweredFiltered else 0
 
+    // 时间范围筛选（全部 / 本周 / 本月）
+    var timeRange by remember { mutableStateOf("all") }
+    val weekAgo = System.currentTimeMillis() - 7L * 24 * 3600 * 1000
+    val monthAgo = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
+    val rangeFiltered = remember(filtered, timeRange) {
+        when (timeRange) {
+            "week" -> filtered.filter { it.finishedAt >= weekAgo }
+            "month" -> filtered.filter { it.finishedAt >= monthAgo }
+            else -> filtered
+        }
+    }
+    // 环比：本周（最近7天）vs 上周（再前7天）正确率差
+    val weekStart = System.currentTimeMillis() - 7L * 24 * 3600 * 1000
+    val prevWeekStart = weekStart - 7L * 24 * 3600 * 1000
+    fun accOf(list: List<com.example.shuati.model.QuizHistory>): Int {
+        val t = list.sumOf { it.total }
+        val c = list.sumOf { it.correct }
+        return if (t > 0) c * 100 / t else 0
+    }
+    val curWeek = filtered.filter { it.finishedAt >= weekStart }
+    val prevWeek = filtered.filter { it.finishedAt in prevWeekStart until weekStart }
+    val weekDelta = if (curWeek.isNotEmpty() && prevWeek.isNotEmpty()) accOf(curWeek) - accOf(prevWeek) else null
+
     // 最近7次正确率趋势
     val recent7 = filtered.takeLast(7).reversed()
     val maxTrendAcc = recent7.maxOfOrNull { it.accuracy } ?: 1
@@ -127,7 +150,40 @@ fun StatsScreen(navController: NavController) {
         return h.toString() + "时" + if (rm > 0) rm.toString() + "分" else ""
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { ScreenTopBar("学习统计", onBack = { navController.popBackStack() }) }) { padding ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
+        topBar = {
+            ScreenTopBar(
+                "学习统计",
+                onBack = { navController.popBackStack() },
+                subtitle = "累计 ${totalSessions} 次刷题记录",
+                actions = {
+                    var showRange by remember { mutableStateOf(false) }
+                    TextButton(onClick = { showRange = true }) {
+                        Text(
+                            when (timeRange) { "week" -> "本周"; "month" -> "本月"; else -> "全部" },
+                            fontSize = 12.5.sp
+                        )
+                    }
+                    if (showRange) {
+                        AlertDialog(
+                            onDismissRequest = { showRange = false },
+                            title = { Text("时间范围") },
+                            text = {
+                                Column {
+                                    listOf("all" to "全部时间", "month" to "近 30 天", "week" to "近 7 天").forEach { (v, label) ->
+                                        TextButton(onClick = { timeRange = v; showRange = false }, modifier = Modifier.fillMaxWidth()) {
+                                            Text(if (timeRange == v) "● $label" else label, color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = { TextButton(onClick = { showRange = false }) { Text("取消") } }
+                        )
+                    }
+                }
+            )
+        }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -166,10 +222,16 @@ fun StatsScreen(navController: NavController) {
                             color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.TrendingUp, null, tint = MaterialTheme.semantic.success, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Filled.TrendingUp, null,
+                                tint = if ((weekDelta ?: 0) >= 0) MaterialTheme.semantic.success else MaterialTheme.semantic.error,
+                                modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("累计刷题 $totalAnsweredFiltered 题", fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (weekDelta != null) "较上周 ${if (weekDelta >= 0) "+" else ""}$weekDelta 个百分点"
+                                else "累计刷题 $totalAnsweredFiltered 题",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -185,7 +247,7 @@ fun StatsScreen(navController: NavController) {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     StatTile("$bestAccuracy%", "最高正确率", Modifier.weight(1f), valueColor = MaterialTheme.semantic.success)
                     StatTile("$avgAccuracy%", "平均正确率", Modifier.weight(1f))
-                    StatTile("$totalCorrectFiltered", "答对题数", Modifier.weight(1f))
+                    StatTile(if (avgTimePerQ > 0) "${avgTimePerQ}s" else "—", "平均每题", Modifier.weight(1f))
                 }
             }
 
@@ -322,13 +384,43 @@ fun StatsScreen(navController: NavController) {
             }
 
             if (typeAcc.isNotEmpty()) {
-                item { Text("题型分布", fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
-                    modifier = Modifier.padding(top = 4.dp)) }
-                items(typeAcc) { (type, count) ->
+                item {
+                    val totalT = typeAcc.sumOf { it.second }
+                    val typeColors = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.secondary,
+                        MaterialTheme.colorScheme.tertiary,
+                        MaterialTheme.semantic.info,
+                        MaterialTheme.colorScheme.surfaceVariant
+                    )
                     CardBox {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(typeLabel(type), fontWeight = FontWeight.Medium, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                            Text("$count 题", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("题型分布", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Spacer(Modifier.height(12.dp))
+                        if (totalT > 0) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                typeAcc.forEachIndexed { i, (_, count) ->
+                                    Box(
+                                        Modifier
+                                            .weight((count.toFloat() / totalT).coerceAtLeast(0.01f))
+                                            .height(10.dp)
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(typeColors[i % typeColors.size])
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            typeAcc.forEachIndexed { i, (type, count) ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(typeColors[i % typeColors.size]))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(typeLabel(type), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f))
+                                    Text("$count 题 · ${if (totalT > 0) count * 100 / totalT else 0}%", fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
                         }
                     }
                 }

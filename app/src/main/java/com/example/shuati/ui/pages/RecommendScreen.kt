@@ -28,6 +28,8 @@ import com.example.shuati.ui.components.HeroCard
 import com.example.shuati.ui.components.TagChip
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.clickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,15 +39,23 @@ fun RecommendScreen(navController: NavController) {
     val wrongs = remember { repo.getWrongRecords() }
     val favorites = remember { repo.getFavoriteRecords() }
     val history = remember { repo.getHistoryRecords() }
-    val recommended = remember(banks, wrongs, favorites, history) {
+    var refreshTick by remember { mutableStateOf(0) }
+    val recommended = remember(banks, wrongs, favorites, history, refreshTick) {
         Recommend.buildRecommendations(banks, wrongs, favorites, history) { bid, qid ->
             repo.getStreak(bid, qid)
         }
     }
+    // 更新时间（每次进入/刷新时取当前时间）
+    val updatedAt = remember(refreshTick) {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+    }
+    val coveredBanks = recommended.map { it.bankId }.distinct().size
+    val estMinutes = (recommended.size * 20 / 60.0).toInt().coerceAtLeast(1)
 
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = { ScreenTopBar("智能推荐", onBack = { navController.popBackStack() }) },
         floatingActionButton = {
             if (recommended.isNotEmpty())
@@ -79,6 +89,20 @@ fun RecommendScreen(navController: NavController) {
                                 Spacer(Modifier.height(4.dp))
                                 Text("综合错题、收藏、正确率与新题计算", fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.Refresh, contentDescription = null,
+                                        modifier = Modifier.size(13.dp).clickable { refreshTick++ },
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("今天 $updatedAt 更新", fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(14.dp))
+                                    Text("预计 $estMinutes 分钟 · 覆盖 $coveredBanks 题库", fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
@@ -112,6 +136,7 @@ fun RecommendScreen(navController: NavController) {
                 items(recommended, key = { "${it.bankId}_${it.question.id}" }) { item ->
                     RecItem(
                         item = item,
+                        wrongInfo = wrongs.firstOrNull { it.bankId == item.bankId && it.questionId == item.question.id },
                         onClick = {
                             navController.navigate("${Routes.QUIZ}?bankId=${item.bankId}&mode=sequence&source=bank&questionIds=${item.bankId}::${item.question.id}")
                         }
@@ -123,7 +148,7 @@ fun RecommendScreen(navController: NavController) {
 }
 
 @Composable
-private fun RecItem(item: Recommend.RecommendItem, onClick: () -> Unit) {
+private fun RecItem(item: Recommend.RecommendItem, wrongInfo: com.example.shuati.model.WrongRecord?, onClick: () -> Unit) {
     val q = item.question
     CardBox(onClick = onClick) {
         Column {
@@ -168,6 +193,22 @@ private fun RecItem(item: Recommend.RecommendItem, onClick: () -> Unit) {
                 reasonChip(item.reason)
                 TagChip(Recommend.typeLabel(q.type))
                 if (item.bankName.isNotBlank()) TagChip(item.bankName)
+            }
+            if (wrongInfo != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("错 ${wrongInfo.wrongCount} 次", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.semantic.error)
+                    Spacer(Modifier.width(10.dp))
+                    val daysAgo = (System.currentTimeMillis() - wrongInfo.lastWrongAt) / 86400000L
+                    Text(
+                        "最近答错 ${if (daysAgo <= 0) "今天" else if (daysAgo == 1L) "昨天" else "$daysAgo 天前"}",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("时效加权", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.semantic.warning)
+                }
             }
         }
     }

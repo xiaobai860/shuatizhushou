@@ -45,6 +45,10 @@ class AppRepository(private val context: Context) {
         private val MASTERY_STREAKS_KEY = stringPreferencesKey("wrong_mastery_streaks")
         private val DEDUP_THRESHOLD_KEY = stringPreferencesKey("dedup_threshold")
         private val DYNAMIC_COLOR_KEY = stringPreferencesKey("dynamic_color")
+        private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+        private val QUESTION_STATS_KEY = stringPreferencesKey("question_stats")
+        private val WRONG_ANSWERS_KEY = stringPreferencesKey("wrong_answers")
+        private val BACKUP_HISTORY_KEY = stringPreferencesKey("backup_history")
     }
 
     // ─── 通用读写（类型安全，避免泛型擦除） ──────────────────────
@@ -172,6 +176,50 @@ class AppRepository(private val context: Context) {
     }
     fun saveMasteryTarget(n: Int) = writeString(MASTERY_TARGET_KEY, n.toString())
 
+    // ─── 每题正确率统计（key = "bankId::questionId"，value = "correct,total"） ──
+    fun getQuestionStats(): Map<String, String> {
+        val raw = readString(QUESTION_STATS_KEY, "")
+        if (raw.isBlank()) return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+    }
+    fun recordQuestionResult(bankId: String, questionId: String, correct: Boolean) {
+        val key = "$bankId::$questionId"
+        val stats = getQuestionStats().toMutableMap()
+        val (c, t) = stats[key]?.split(",")?.let {
+            (it.getOrNull(0)?.toIntOrNull() ?: 0) to (it.getOrNull(1)?.toIntOrNull() ?: 0)
+        } ?: (0 to 0)
+        stats[key] = "${if (correct) c + 1 else c},${t + 1}"
+        writeString(QUESTION_STATS_KEY, json.encodeToString(stats))
+    }
+
+    // ─── 错误历史（key = "bankId::questionId"，value = 用户答错的选择列表） ──
+    fun getWrongAnswers(bankId: String, questionId: String): List<String> {
+        val raw = readString(WRONG_ANSWERS_KEY, "")
+        if (raw.isBlank()) return emptyList()
+        val map = runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
+        return map["$bankId::$questionId"] ?: emptyList()
+    }
+    fun recordWrongAnswer(bankId: String, questionId: String, userAnswer: String) {
+        if (userAnswer.isBlank()) return
+        val raw = readString(WRONG_ANSWERS_KEY, "")
+        val map = (runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())).toMutableMap()
+        val key = "$bankId::$questionId"
+        val list = (map[key] ?: emptyList()) + userAnswer
+        map[key] = list.takeLast(8) // 最多保留 8 条历史
+        writeString(WRONG_ANSWERS_KEY, json.encodeToString(map))
+    }
+
+    // ─── 备份历史（最近导出时间戳列表） ──────────────────────────
+    fun getBackupHistory(): List<Long> {
+        val raw = readString(BACKUP_HISTORY_KEY, "")
+        if (raw.isBlank()) return emptyList()
+        return runCatching { json.decodeFromString<List<Long>>(raw) }.getOrDefault(emptyList())
+    }
+    fun recordBackup(ts: Long) {
+        val list = (getBackupHistory() + ts).takeLast(5)
+        writeString(BACKUP_HISTORY_KEY, json.encodeToString(list))
+    }
+
     // ─── 偏好：动态取色（Compose 状态，开关即时生效） ─────────────
     var dynamicColor: Boolean by mutableStateOf(
         runBlocking { context.dataStore.data.first()[DYNAMIC_COLOR_KEY] ?: "1" == "1" }
@@ -180,6 +228,16 @@ class AppRepository(private val context: Context) {
     fun saveDynamicColor(enabled: Boolean) {
         dynamicColor = enabled
         writeString(DYNAMIC_COLOR_KEY, if (enabled) "1" else "0")
+    }
+
+    // ─── 偏好：主题模式（system/light/dark） ────────────────────────
+    var themeMode: String by mutableStateOf(
+        runBlocking { context.dataStore.data.first()[THEME_MODE_KEY] ?: "system" }
+    )
+        private set
+    fun saveThemeMode(mode: String) {
+        themeMode = mode
+        writeString(THEME_MODE_KEY, mode)
     }
 
     fun getMasteryStreaks(): Map<String, Int> {

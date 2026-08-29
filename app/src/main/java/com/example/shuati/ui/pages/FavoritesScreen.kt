@@ -62,6 +62,7 @@ fun FavoritesScreen(navController: NavController) {
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar(
                 "收藏",

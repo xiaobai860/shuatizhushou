@@ -24,6 +24,10 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import com.example.shuati.ui.components.Badge
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ChevronTrailing
@@ -44,21 +48,42 @@ import com.example.shuati.ui.theme.semantic
 fun LibraryTabScreen(navController: NavController) {
     val repo = repository()
     var banks by remember { mutableStateOf(emptyList<QuestionBank>()) }
-    LaunchedEffect(Unit) { banks = repo.getBanks() }
+    var wrongs by remember { mutableStateOf(emptyList<com.example.shuati.model.WrongRecord>()) }
+    var favs by remember { mutableStateOf(emptyList<com.example.shuati.model.FavoriteRecord>()) }
+    LaunchedEffect(Unit) {
+        banks = repo.getBanks()
+        wrongs = repo.getWrongRecords()
+        favs = repo.getFavoriteRecords()
+    }
     val totalQuestions = banks.sumOf { it.questions.size }
+    // 每题库重做/收藏数
+    val wrongByBank = wrongs.groupingBy { it.bankId }.eachCount()
+    val favByBank = favs.groupingBy { it.bankId }.eachCount()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
-            TopAppBar(
-                title = { Text("题库", fontSize = 19.sp, fontWeight = FontWeight.Bold) },
-                actions = {
+            Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(52.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "题库",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f).padding(start = 12.dp)
+                    )
                     IconButton(onClick = { navController.navigate(Routes.SEARCH) }) {
                         Icon(Icons.Filled.Search, "搜索", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -159,11 +184,23 @@ fun LibraryTabScreen(navController: NavController) {
                                     }
                                 }
                                 Spacer(Modifier.height(3.dp))
-                                Text(
-                                    "$total 题" + if (answered > 0) " · 已答 $answered" else "",
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "$total 题" + if (answered > 0) " · 已答 $answered" else "",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    val wN = wrongByBank[bank.id] ?: 0
+                                    val fN = favByBank[bank.id] ?: 0
+                                    if (wN > 0) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Badge("重 $wN", color = MaterialTheme.semantic.errorContainer, textColor = MaterialTheme.semantic.onErrorContainer)
+                                    }
+                                    if (fN > 0) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Badge("收 $fN", color = MaterialTheme.semantic.warningContainer, textColor = MaterialTheme.semantic.onWarningContainer)
+                                    }
+                                }
                             }
                             TextButton(onClick = {
                                 navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=sequence&source=bank&showModeSelect=true")
@@ -190,20 +227,45 @@ fun StudyTabScreen(navController: NavController) {
     var favCount by remember { mutableStateOf(0) }
     var historyCount by remember { mutableStateOf(0) }
     var planCount by remember { mutableStateOf(0) }
+    // 本周活跃 / 掌握度
+    var historyList by remember { mutableStateOf(emptyList<com.example.shuati.model.QuizHistory>()) }
+    var masteredN by remember { mutableStateOf(0) }
+    var wrongN by remember { mutableStateOf(0) }
+    var totalN by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         wrongCount = repo.getWrongRecords().size
         favCount = repo.getFavoriteRecords().size
-        historyCount = repo.getHistoryRecords().size
+        historyList = repo.getHistoryRecords()
+        historyCount = historyList.size
         planCount = repo.getStudyPlans().count { !it.archived }
+        // 掌握度：连对次数达标的题数 / 错题数 / 全部题库题数
+        val target = repo.getMasteryTarget()
+        masteredN = repo.getMasteryStreaks().count { it.value >= target }
+        wrongN = repo.getWrongRecords().distinctBy { "${it.bankId}::${it.questionId}" }.size
+        totalN = repo.getBanks().sumOf { it.questions.size }
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
-            TopAppBar(
-                title = { Text("学习", fontSize = 19.sp, fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+            Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(52.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "学习",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -246,6 +308,34 @@ fun StudyTabScreen(navController: NavController) {
                                 modifier = Modifier.width(112.dp),
                                 onClick = { navController.navigate(Routes.RECOMMEND) }
                             )
+                            // 推荐构成 chips（从错题/收藏/历史推导）
+                            val recomErr = wrongCount
+                            val recomFav = favCount
+                            val recomNew = historyCount
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AssistChip(
+                                    onClick = { navController.navigate(Routes.RECOMMEND) },
+                                    label = { Text("高频错题 $recomErr", fontSize = 10.5.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                                    )
+                                )
+                                AssistChip(
+                                    onClick = { navController.navigate(Routes.RECOMMEND) },
+                                    label = { Text("收藏未掌握 $recomFav", fontSize = 10.5.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                                    )
+                                )
+                                AssistChip(
+                                    onClick = { navController.navigate(Routes.RECOMMEND) },
+                                    label = { Text("新题 $recomNew", fontSize = 10.5.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
                         }
                         Icon(
                             Icons.Filled.AutoAwesome,
@@ -255,6 +345,16 @@ fun StudyTabScreen(navController: NavController) {
                         )
                     }
                 }
+            }
+
+            // 本周活跃（周打卡日历）
+            item {
+                WeekActivityCard(historyList)
+            }
+
+            // 掌握度（分段条）
+            item {
+                MasteryCard(masteredN = masteredN, wrongN = wrongN, totalN = totalN)
             }
 
             // 学习记录
@@ -309,6 +409,123 @@ fun StudyTabScreen(navController: NavController) {
 
 // ─────────────────────────── 我的 ───────────────────────────
 
+/** 本周活跃：周打卡日历 + 题数统计 */
+@Composable
+private fun WeekActivityCard(history: List<com.example.shuati.model.QuizHistory>) {
+    val today = LocalDate.now()
+    val monday = today.with(DayOfWeek.MONDAY)
+    val zone = ZoneId.systemDefault()
+    val counts = (0..6).associate { off ->
+        val d = monday.plusDays(off.toLong())
+        val n = history.count { h ->
+            val hd = Instant.ofEpochMilli(h.finishedAt).atZone(zone).toLocalDate()
+            hd == d
+        }
+        d to n
+    }
+    val punchDays = counts.values.count { it > 0 }
+    val totalQ = counts.values.sum()
+
+    CardBox {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("本周活跃", fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("共 $totalQ 题 · $punchDays 天打卡", fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            counts.forEach { (d, n) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        when (d.dayOfWeek) {
+                            DayOfWeek.MONDAY -> "一"; DayOfWeek.TUESDAY -> "二"; DayOfWeek.WEDNESDAY -> "三"
+                            DayOfWeek.THURSDAY -> "四"; DayOfWeek.FRIDAY -> "五"; DayOfWeek.SATURDAY -> "六"
+                            else -> "日"
+                        },
+                        fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                when {
+                                    n > 0 && d == today -> MaterialTheme.colorScheme.primary
+                                    n > 0 -> MaterialTheme.colorScheme.primaryContainer
+                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (n > 0) n.toString() else "·",
+                            fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            color = when {
+                                n > 0 && d == today -> MaterialTheme.colorScheme.onPrimary
+                                n > 0 -> MaterialTheme.colorScheme.onPrimaryContainer
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                    if (d == today) {
+                        Spacer(Modifier.height(3.dp))
+                        Text("今天", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 掌握度：已掌握 / 模糊 / 未掌握 三段条 + 图例 */
+@Composable
+private fun MasteryCard(masteredN: Int, wrongN: Int, totalN: Int) {
+    val fuzzy = (totalN - masteredN - wrongN).coerceAtLeast(0)
+    val segs = listOf(masteredN, fuzzy, wrongN)
+    val sum = segs.sum().coerceAtLeast(1)
+    val colors = listOf(
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.semantic.warning,
+        MaterialTheme.colorScheme.surfaceVariant
+    )
+    CardBox {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("掌握度", fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("$totalN 题", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            segs.forEachIndexed { i, v ->
+                Box(
+                    Modifier
+                        .weight((v.toFloat() / sum).coerceAtLeast(0.01f))
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(colors[i])
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            MasteryLegend(colors[0], "已掌握", masteredN)
+            MasteryLegend(colors[1], "模糊", fuzzy)
+            MasteryLegend(colors[2], "未掌握", wrongN)
+        }
+    }
+}
+
+@Composable
+private fun MasteryLegend(color: Color, label: String, count: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text("$label $count", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MineTabScreen(navController: NavController) {
@@ -316,7 +533,8 @@ fun MineTabScreen(navController: NavController) {
     val ctx = LocalContext.current
     var storageUsed by remember { mutableStateOf(0L) }
     var remindOn by remember { mutableStateOf(true) }
-    var reducedMotion by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
     val version = remember {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
     }
@@ -324,11 +542,25 @@ fun MineTabScreen(navController: NavController) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
-            TopAppBar(
-                title = { Text("我的", fontSize = 19.sp, fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+            Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(52.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "我的",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -425,7 +657,17 @@ fun MineTabScreen(navController: NavController) {
                     }
                     Spacer(Modifier.height(10.dp))
                     ThinProgress(progress = (storageUsed / 1024.0 / 10240.0).toFloat().coerceIn(0f, 1f))
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(10.dp))
+                    // 明细：题库 / 记录 / 其他（按比例估算）
+                    val qBytes = repo.getBanks().sumOf { it.questions.size } * 600L
+                    val recBytes = (repo.getWrongRecords().size + repo.getHistoryRecords().size) * 400L
+                    val otherBytes = (storageUsed - qBytes - recBytes).coerceAtLeast(0)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.weight(1f)) { StorageDetail("题库", qBytes) }
+                        Box(Modifier.weight(1f)) { StorageDetail("记录", recBytes) }
+                        Box(Modifier.weight(1f)) { StorageDetail("其他", otherBytes) }
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "数据保存在本机，可在「备份还原」中导出备份",
                         fontSize = 11.sp,
@@ -446,8 +688,15 @@ fun MineTabScreen(navController: NavController) {
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "主题",
-                        subtitle = "跟随系统，支持深色模式",
-                        trailing = { Text("自动", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        subtitle = when (repo.themeMode) {
+                            "light" -> "浅色"
+                            "dark" -> "深色"
+                            else -> "跟随系统"
+                        },
+                        trailing = {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = { showThemeDialog = true }
                     )
                     ListRow(
                         icon = { Icon(Icons.Filled.Palette, null, Modifier.size(18.dp)) },
@@ -470,15 +719,6 @@ fun MineTabScreen(navController: NavController) {
                         subtitle = "每天 21:00 提醒打卡",
                         trailing = { Switch(checked = remindOn, onCheckedChange = { remindOn = it }) }
                     )
-                    ListRow(
-                        icon = { Icon(Icons.Filled.PlayCircleOutline, null, Modifier.size(18.dp)) },
-                        iconBackground = MaterialTheme.colorScheme.surfaceContainer,
-                        iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        title = "减少动效",
-                        subtitle = "关闭过渡动画",
-                        trailing = { Switch(checked = reducedMotion, onCheckedChange = { reducedMotion = it }) },
-                        showDivider = false
-                    )
                 }
             }
 
@@ -489,6 +729,15 @@ fun MineTabScreen(navController: NavController) {
             }
             item {
                 Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)) {
+                    ListRow(
+                        icon = { Icon(Icons.Filled.HelpOutline, null, Modifier.size(18.dp)) },
+                        iconBackground = MaterialTheme.colorScheme.surfaceContainer,
+                        iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        title = "使用帮助",
+                        subtitle = "导入题库 · 答题 · 错题复习",
+                        trailing = { ChevronTrailing() },
+                        onClick = { showHelpDialog = true }
+                    )
                     ListRow(
                         icon = { Icon(Icons.Filled.Info, null, Modifier.size(18.dp)) },
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
@@ -501,9 +750,86 @@ fun MineTabScreen(navController: NavController) {
             }
         }
     }
+
+    // 使用帮助
+    if (showHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            title = { Text("使用帮助") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(
+                        "📥 导入题库" to "题库页 → 导入题库，选择 Excel 文件即可",
+                        "✏️ 开始刷题" to "题库行点「刷题」，支持顺序 / 随机 / 浏览",
+                        "🔁 错题复习" to "答错自动进错题本，连对 3 次自动移除",
+                        "⭐ 收藏题目" to "答题时点亮星标，可批量练习",
+                        "🗓 学习计划" to "设置每日目标，打卡养成习惯",
+                        "💾 备份数据" to "我的 → 备份与还原，导出 JSON 防丢失"
+                    ).forEach { (t, d) ->
+                        Column {
+                            Text(t, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(d, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showHelpDialog = false }) { Text("知道了") } }
+        )
+    }
+
+    // 主题模式选择
+    if (showThemeDialog) {
+        var selected by remember { mutableStateOf(repo.themeMode) }
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("选择主题") },
+            text = {
+                Column {
+                    listOf(
+                        "system" to "跟随系统",
+                        "light" to "浅色",
+                        "dark" to "深色"
+                    ).forEach { (value, label) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { selected = value }
+                                .padding(vertical = 10.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = selected == value, onClick = { selected = value })
+                            Spacer(Modifier.width(6.dp))
+                            Text(label, fontSize = 15.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    repo.saveThemeMode(selected)
+                    showThemeDialog = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showThemeDialog = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 // ─────────────────────────── 通用私有组件 ───────────────────────────
+
+/** 存储明细小项（须在 Row/Column 内调用，weight 由父级 Row 分配） */
+@Composable
+private fun StorageDetail(label: String, bytes: Long) {
+    Column {
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(2.dp))
+        Text(formatBytes(bytes), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface)
+    }
+}
 
 /** 汇总环 */
 @Composable

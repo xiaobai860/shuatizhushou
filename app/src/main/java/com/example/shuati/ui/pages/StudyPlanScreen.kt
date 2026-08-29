@@ -63,6 +63,7 @@ fun StudyPlanScreen(navController: NavController) {
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = { ScreenTopBar("学习计划", onBack = { navController.popBackStack() }) },
         floatingActionButton = { FloatingActionButton(onClick = { showCreate = true }) { Icon(Icons.Filled.Add, null) } }
     ) { padding ->
@@ -253,6 +254,20 @@ private fun PlanCard(
                     Spacer(Modifier.height(7.dp))
                     Text("第 $roundNo/$totalRounds 轮 · 预计完成 ${estFinishDate ?: "—"}",
                         fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (plan.endDate != null && !isExpired) {
+                        Spacer(Modifier.height(3.dp))
+                        val remainDays = runCatching {
+                            val df = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                            (df.parse(plan.endDate).time - df.parse(today).time) / 86400000L
+                        }.getOrNull()?.toInt()
+                        if (remainDays != null) {
+                            Text(
+                                if (remainDays == 0) "今天截止" else "还剩 $remainDays 天",
+                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (remainDays <= 3) MaterialTheme.semantic.warning else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(4.dp))

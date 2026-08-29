@@ -18,6 +18,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -35,7 +37,7 @@ import com.example.shuati.ui.theme.ShuatiSpacing
 // 顶部栏
 // ===========================================================================
 
-/** 统一页头（含返回按钮），支持副标题 */
+/** 统一页头（含返回按钮），支持副标题。高度紧凑，紧贴状态栏，标题不被裁切 */
 @Composable
 fun ScreenTopBar(
     title: String,
@@ -43,33 +45,58 @@ fun ScreenTopBar(
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    TopAppBar(
-        title = {
-            Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 19.sp, letterSpacing = (-0.3).sp)
+    Surface(
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(52.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            } else {
+                Spacer(Modifier.width(8.dp))
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = if (onBack != null) 0.dp else 8.dp, end = 8.dp)
+            ) {
+                Text(
+                    title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    letterSpacing = (-0.2).sp,
+                    lineHeight = 22.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 if (subtitle != null) {
                     Text(
                         subtitle,
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium,
-                        lineHeight = 16.sp,
+                        lineHeight = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-        },
-        navigationIcon = {
-            if (onBack != null) {
-                IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                }
-            }
-        },
-        actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-    )
+            Row(verticalAlignment = Alignment.CenterVertically) { actions() }
+        }
+    }
 }
 
 // ===========================================================================
@@ -160,15 +187,15 @@ fun HeroCard(
                     )
                 )
             )
+            // 右上角柔光：drawBehind 绘制不占布局，避免撑高 HeroCard
+            .drawBehind {
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.28f),
+                    radius = size.minDimension * 0.42f,
+                    center = Offset(size.width - size.minDimension * 0.18f, -size.minDimension * 0.25f)
+                )
+            }
     ) {
-        // 右上角柔光
-        Box(
-            Modifier
-                .size(160.dp)
-                .align(Alignment.TopEnd)
-                .offset(x = 50.dp, y = (-70).dp)
-                .background(Color.White.copy(alpha = 0.28f), CircleShape)
-        )
         Column(modifier = Modifier.padding(ShuatiSpacing.CardPadding), content = content)
     }
 }

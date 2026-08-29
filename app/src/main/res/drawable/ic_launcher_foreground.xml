@@ -1,22 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  刷题助手 应用图标（adaptive icon 前景）
+  设计：暖米答题卡（题目+三条选项+已选圆点）+ 深绿大对勾
+  配色：暖白卡片 #FFF5EC、暖灰选项 #8A7F74、橙色选中 #C8551E
+  深绿勾 #1F7A4A 在暖白卡片上对比度清晰，呼应品牌绿但更深沉
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 左页 -->
+
+    <!-- 答题卡（圆角矩形，居中略偏上） -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,47 C47,43 38,44 32,48 L32,66 C39,64 47,65 54,69 Z" />
-    <!-- 右页 -->
+        android:fillColor="#FFF5EC"
+        android:pathData="M38 28 h32 a4 4 0 0 1 4 4 v44 a4 4 0 0 1 -4 4 h-32 a4 4 0 0 1 -4 -4 v-44 a4 4 0 0 1 4 -4 z" />
+
+    <!-- 选项 1：横线（已答）+ 右侧选中圆点 -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,47 C61,43 70,44 76,48 L76,66 C69,64 61,65 54,69 Z" />
-    <!-- 对勾 -->
+        android:fillColor="#8A7F74"
+        android:pathData="M45 42 h14 v2 h-14 z" />
     <path
-        android:strokeColor="#22C55E"
-        android:strokeWidth="7"
+        android:fillColor="#C8551E"
+        android:pathData="M66 43 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0" />
+
+    <!-- 选项 2：横线 -->
+    <path
+        android:fillColor="#8A7F74"
+        android:pathData="M45 50 h18 v2 h-18 z" />
+
+    <!-- 选项 3：横线（短，未答） -->
+    <path
+        android:fillColor="#8A7F74"
+        android:pathData="M45 58 h11 v2 h-11 z" />
+
+    <!-- 大对勾（深绿，叠加在卡片右下，象征「答对了」） -->
+    <path
+        android:strokeColor="#1F7A4A"
+        android:strokeWidth="5.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M44,56 L51,64 L65,50" />
+        android:pathData="M58 68 L66 76 L82 58" />
 </vector>

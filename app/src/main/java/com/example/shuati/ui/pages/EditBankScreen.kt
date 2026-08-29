@@ -107,11 +107,12 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar(
                 currentBank.name,
                 onBack = { navController.popBackStack() },
-                subtitle = "${allQuestions.size} 题",
+                subtitle = "${allQuestions.size} 题 · 更新于 ${java.text.SimpleDateFormat("MM-dd", java.util.Locale.getDefault()).format(java.util.Date(currentBank.updatedAt))}",
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "添加题目")

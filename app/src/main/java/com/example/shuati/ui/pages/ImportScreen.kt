@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +34,8 @@ import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.SoftButton
 import com.example.shuati.ui.components.StatTile
+import com.example.shuati.ui.components.TagChip
+import com.example.shuati.ui.components.typeLabel
 import com.example.shuati.ui.theme.ShuatiSpacing
 import com.example.shuati.ui.theme.semantic
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,7 @@ fun ImportScreen(navController: NavController) {
     var imported by remember { mutableStateOf(0) }
     var totalRows by remember { mutableStateOf(0) }
     var skipped by remember { mutableStateOf(0) }
+    var typeCounts by remember { mutableStateOf(emptyList<Pair<String, Int>>()) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -77,6 +81,13 @@ fun ImportScreen(navController: NavController) {
                     totalRows = res.totalRows
                     skipped = res.skipped
                     parsedName = res.bank.name
+                    typeCounts = res.bank.questions
+                        .groupingBy { it.type }
+                        .eachCount()
+                        .map { (t, c) ->
+                            com.example.shuati.ui.components.typeLabel(t) to c
+                        }
+                        .sortedByDescending { it.second }
                     bankName = repo.generateUniqueBankName(stripExt(fileName))
                     status = "done"
                 } catch (e: Exception) {
@@ -112,6 +123,7 @@ fun ImportScreen(navController: NavController) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar("导入题库", onBack = { navController.popBackStack() }, subtitle = "Excel · 模板下载")
         },
@@ -270,6 +282,18 @@ fun ImportScreen(navController: NavController) {
                                 Text("题干或答案为空的题目已跳过。导入后可在「疑似错题」中检查。",
                                     fontSize = 11.5.sp, lineHeight = 17.sp,
                                     color = MaterialTheme.semantic.onWarningContainer.copy(alpha = 0.85f))
+                            }
+                        }
+                    }
+                    // 题型分布
+                    if (typeCounts.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        ) {
+                            typeCounts.forEach { (t, c) ->
+                                TagChip("$t $c")
                             }
                         }
                     }

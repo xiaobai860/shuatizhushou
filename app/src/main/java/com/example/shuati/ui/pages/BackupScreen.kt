@@ -48,6 +48,7 @@ fun BackupScreen(navController: NavController) {
     val scope = rememberCoroutineScope()
 
     var status by remember { mutableStateOf("") }
+    var backupHistory by remember { mutableStateOf(repo.getBackupHistory()) }
     // true=覆盖还原（清空替换）；false=合并还原（保留现有、跳过重名）
     var overwrite by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -63,6 +64,8 @@ fun BackupScreen(navController: NavController) {
                     context.contentResolver.openOutputStream(uri)?.use { os ->
                         os.write(repo.exportBackupJson().toByteArray(Charsets.UTF_8))
                     }
+                    repo.recordBackup(System.currentTimeMillis())
+                    backupHistory = repo.getBackupHistory()
                     status = "备份已导出"
                 } catch (e: Exception) { status = "导出失败：${e.message}" }
             }
@@ -90,6 +93,7 @@ fun BackupScreen(navController: NavController) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             ScreenTopBar("备份与还原", onBack = { navController.popBackStack() }, subtitle = "全量数据 · JSON 格式")
         }
@@ -109,10 +113,24 @@ fun BackupScreen(navController: NavController) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        if (status.contains("导出")) "刚刚" else "尚未备份过",
+                        if (backupHistory.isNotEmpty())
+                            java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(backupHistory.last()))
+                        else "尚未备份过",
                         fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.4).sp, color = MaterialTheme.colorScheme.onSurface
                     )
+                    if (backupHistory.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "最近 ${backupHistory.size} 次备份：" +
+                                backupHistory.takeLast(3).joinToString(" · ") {
+                                    java.text.SimpleDateFormat("MM-dd", java.util.Locale.getDefault())
+                                        .format(java.util.Date(it))
+                                },
+                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(Modifier.height(5.dp))
                     Text("题库、错题、收藏、历史、计划、进度与设置全量导出",
                         fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
