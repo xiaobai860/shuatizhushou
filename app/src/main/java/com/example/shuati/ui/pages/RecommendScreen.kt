@@ -41,9 +41,9 @@ fun RecommendScreen(navController: NavController) {
     val history = remember { repo.getHistoryRecords() }
     var refreshTick by remember { mutableStateOf(0) }
     val recommended = remember(banks, wrongs, favorites, history, refreshTick) {
-        Recommend.buildRecommendations(banks, wrongs, favorites, history) { bid, qid ->
+        Recommend.buildRecommendations(banks, wrongs, favorites, history, { bid, qid ->
             repo.getStreak(bid, qid)
-        }
+        }, repo.getMasteryTarget())
     }
     // 更新时间（每次进入/刷新时取当前时间）
     val updatedAt = remember(refreshTick) {
@@ -111,7 +111,7 @@ fun RecommendScreen(navController: NavController) {
                 }
                 item {
                     val errN = recommended.count { it.reason.startsWith("错题") }
-                    val warnN = recommended.count { it.reason == "已收藏" }
+                    val warnN = recommended.count { it.reason.startsWith("已收藏") }
                     val infoN = recommended.count { it.reason.contains("正确率") }
                     val tertN = recommended.count { it.reason == "新题库探索" }
                     CardBox {

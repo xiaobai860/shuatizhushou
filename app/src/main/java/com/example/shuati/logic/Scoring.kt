@@ -86,6 +86,56 @@ object Scoring {
     }
 
     /**
+     * 选项集合相似度：忽略顺序，逐选项归一化（去空白 + 小写）后做 Jaccard。
+     * 作为查重时"是否为同一道题"的辅助证据：选项集合一致≈同源题目。
+     */
+    fun optionSetSimilarity(o1: List<String>?, o2: List<String>?): Double {
+        val a = (o1 ?: emptyList()).map { loose(it) }.filter { it.isNotEmpty() }
+        val b = (o2 ?: emptyList()).map { loose(it) }.filter { it.isNotEmpty() }
+        if (a.isEmpty() && b.isEmpty()) return 1.0
+        if (a.isEmpty() || b.isEmpty()) return 0.0
+        val intersect = a.count { it in b }
+        return intersect.toDouble() / (a.size + b.size - intersect)
+    }
+
+    /**
+     * 查重精确比对（v3）：在"题干相似"基础上引入"选项集合 + 答案一致性"双重校验，
+     * 显著降低"同模板不同题"的误报——例如题干高度相似但答案不同，实为两道不同的题，不再判重。
+     *
+     * 判定规则：
+     *  - 题干相似度 stem ≥ threshold 是必要条件；
+     *  - 且需 选项集合相似 ≥ 0.6 或 答案一致，才判定为重复（duplicate = true）。
+     *
+     * 综合分 score：以题干相似度为主（保留原有排序语义），选项/答案一致给予温和加成，
+     * 不一致则温和衰减，使真正重复的题目分数更高、更易排在前面。
+     */
+    data class DedupMatch(
+        val duplicate: Boolean,
+        val score: Double,
+        val stem: Double,
+        val options: Double,
+        val answer: Double
+    )
+
+    fun compareForDedup(q1: Question, q2: Question, threshold: Double): DedupMatch =
+        compareForDedup(q1.question, q1.options, q1.answer, q2.question, q2.options, q2.answer, threshold)
+
+    fun compareForDedup(
+        t1: String?, o1: List<String>?, a1: String?,
+        t2: String?, o2: List<String>?, a2: String?,
+        threshold: Double
+    ): DedupMatch {
+        val stem = similarity(t1, t2)
+        val opts = optionSetSimilarity(o1, o2)
+        val ans = if (looseEqual(a1, a2)) 1.0 else 0.0
+        val duplicate = stem >= threshold && (opts >= 0.6 || ans >= 0.99)
+        val confirm = maxOf(opts, ans)
+        val score = if (duplicate) stem * (0.75 + 0.25 * confirm)
+                    else stem * (0.5 + 0.5 * confirm)
+        return DedupMatch(duplicate, score.coerceIn(0.0, 1.0), stem, opts, ans)
+    }
+
+    /**
      * 判断题目是否为「疑似错题 / 数据质量问题」。
      * 等价 storage.ts checkIsSuspect。
      */

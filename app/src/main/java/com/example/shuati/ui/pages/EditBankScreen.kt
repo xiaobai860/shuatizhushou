@@ -28,6 +28,7 @@ import com.example.shuati.ui.components.TagChip
 import kotlinx.coroutines.launch
 import java.util.UUID
 import com.example.shuati.ui.components.ScreenTopBar
+import com.example.shuati.ui.components.ShuatiSwitch
 
 const val ITEMS_PER_PAGE = 50
 
@@ -135,7 +136,7 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
                 shape = MaterialTheme.shapes.medium
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     StatItem("总题数", allQuestions.size.toString())
@@ -737,7 +738,7 @@ fun QuestionEditDialog(
                                 Text("答题不限顺序", fontSize = 14.sp)
                                 Text("开启后填写的空可任意顺序匹配", fontSize = 12.sp, color = Color.Gray)
                             }
-                            Switch(checked = qOrderFree, onCheckedChange = { qOrderFree = it })
+                            ShuatiSwitch(checked = qOrderFree, onCheckedChange = { qOrderFree = it })
                         }
                     }
                 }

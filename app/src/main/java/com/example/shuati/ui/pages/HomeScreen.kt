@@ -1,5 +1,6 @@
 package com.example.shuati.ui.pages
 
+import java.util.Calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -136,7 +137,7 @@ fun HomeScreen(navController: NavController) {
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    QuickTile(Icons.Filled.AutoStories, "全部题库", "1,284 题", Modifier.weight(1f)) {
+                    QuickTile(Icons.Filled.AutoStories, "全部题库", "$totalQuestions 题", Modifier.weight(1f)) {
                         navController.navigate("${Routes.QUIZ}?bankId=__all__&mode=sequence&source=all&showModeSelect=true")
                     }
                     QuickTile(Icons.Filled.Visibility, "浏览模式", "直接看答案", Modifier.weight(1f)) {
@@ -220,6 +221,19 @@ fun HomeScreen(navController: NavController) {
     }
 }
 
+/** 根据手机当前时间返回问候语 */
+private fun greetingText(): String {
+    val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when {
+        h in 5..8 -> "早上好"
+        h in 9..11 -> "上午好"
+        h in 12..13 -> "中午好"
+        h in 14..17 -> "下午好"
+        h in 18..23 -> "晚上好"
+        else -> "夜已深，请注意休息哦！"
+    }
+}
+
 /** 顶部问候栏：问候 + 连续天数 + 头像 */
 @Composable
 private fun HomeTopBar(streak: Int) {
@@ -234,7 +248,7 @@ private fun HomeTopBar(streak: Int) {
         ) {
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("下午好", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp, lineHeight = 24.sp)
+                Text(greetingText(), fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp, lineHeight = 24.sp)
                 Text(
                     if (streak > 0) "已连续打卡 $streak 天" else "今天也来刷几道吧",
                     fontSize = 11.5.sp,

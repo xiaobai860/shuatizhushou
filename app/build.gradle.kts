@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+import java.util.Properties
+
 android {
     namespace = "com.example.shuati"
     // AGP 8.9.2 官方支持上限为 36（本机无 android-37 稳定平台；代码未使用 API 37 专属符号）
@@ -14,8 +16,30 @@ android {
         applicationId = "com.example.shuati"
         minSdk = 34
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.9"
+        // 版本号规则：
+        //  - versionName（外显版本号，规则不变）：YYYYMMDD + 两位当日迭代，例 2026082903
+        //  - versionCode（应用内部总迭代数 / 判断升级降级的字段）：独立累计计数器，
+        //    每次执行 assemble*/bundle*/install*/build 自动 +1（从 1 开始），与 versionName 解耦、单调递增。
+        val buildNumberFile = rootProject.file("app/buildNumber.properties")
+        val buildProps = Properties()
+        if (buildNumberFile.exists()) {
+            buildNumberFile.inputStream().use { buildProps.load(it) }
+        }
+        val isBuildTask = gradle.startParameter.taskNames.any {
+            it.contains("assemble", ignoreCase = true) ||
+            it.contains("bundle", ignoreCase = true) ||
+            it.contains("install", ignoreCase = true) ||
+            it.equals("build", ignoreCase = true)
+        }
+        var buildNumber = buildProps.getProperty("buildNumber")?.toIntOrNull() ?: 0
+        if (isBuildTask) {
+            buildNumber += 1
+            buildProps.setProperty("buildNumber", buildNumber.toString())
+            buildNumberFile.parentFile.mkdirs()
+            buildNumberFile.outputStream().use { buildProps.store(it, "Auto-incremented build number (versionCode)") }
+        }
+        versionCode = buildNumber
+        versionName = "2026082903"
         multiDexEnabled = true
         vectorDrawables {
             useSupportLibrary = true

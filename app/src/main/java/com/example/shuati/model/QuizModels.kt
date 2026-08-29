@@ -148,16 +148,25 @@ data class AppSettings(
     val dedupThreshold: Double = 0.45,
     // 动态取色（Material You）：默认开启
     val dynamicColor: Boolean = true,
+    // 主题模式：system / light / dark
+    val themeMode: String = "system",
     // masteryStreaks 用 Map 表示，key 形如 "bankId::questionId"
     val masteryStreaks: Map<String, Int> = emptyMap()
 )
 
 /**
- * 备份文件结构（等价 BackupData，version=5）
+ * 备份文件结构（等价 BackupData，version=6）
+ *
+ * 说明：
+ * - 从 version=6 起，备份分为两类载体：
+ *   1) 旧版单 JSON（本结构，题库题目内联）；
+ *   2) 新版 ZIP（app_data.json 仅含题库元数据，题目另存为 banks/<id>.xlsx）。
+ *   两者均可用本结构反序列化；ZIP 还原时会先把 Excel 题目回填到 banks 再走统一还原逻辑。
+ * - questionStats / wrongAnswers 为每题维度数据，旧备份缺省为空，还原时本地优先保留。
  */
 @Serializable
 data class BackupData(
-    val version: Int = 5,
+    val version: Int = 6,
     val exportedAt: Long = 0L,
     val banks: List<QuestionBank> = emptyList(),
     val wrongRecords: List<WrongRecord> = emptyList(),
@@ -166,5 +175,7 @@ data class BackupData(
     val history: List<QuizHistory> = emptyList(),
     val studyPlans: List<StudyPlan> = emptyList(),
     val planProgress: List<PlanProgress> = emptyList(),
+    val questionStats: Map<String, String> = emptyMap(),     // 每题正确率统计 key="bankId::questionId" value="correct,total"
+    val wrongAnswers: Map<String, List<String>> = emptyMap(), // 每题错答历史 key="bankId::questionId"
     val settings: AppSettings = AppSettings()
 )

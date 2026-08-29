@@ -40,6 +40,7 @@ import com.example.shuati.ui.components.ScreenTopBar
 import com.example.shuati.ui.components.SectionTitle
 import com.example.shuati.ui.components.TagChip
 import com.example.shuati.ui.components.CardBox
+import com.example.shuati.ui.components.ShuatiSwitch
 import com.example.shuati.ui.components.ThinProgress
 import kotlinx.coroutines.delay
 import java.util.UUID
@@ -286,7 +287,7 @@ fun QuizScreen(
                         Text("跳过残缺题目", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         Text("自动略过缺少选项或答案的题", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = skipIncomplete, onCheckedChange = { skipIncomplete = it })
+                    ShuatiSwitch(checked = skipIncomplete, onCheckedChange = { skipIncomplete = it })
                 }
                 // 只刷未做过的题
                 Row(
@@ -304,7 +305,7 @@ fun QuizScreen(
                             fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(checked = filterLocal, onCheckedChange = { filterLocal = it })
+                    ShuatiSwitch(checked = filterLocal, onCheckedChange = { filterLocal = it })
                 }
                 // 填空不限答案顺序
                 Row(
@@ -318,7 +319,7 @@ fun QuizScreen(
                         Text("填空不限答案顺序", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         Text("答填空多空时按任意顺序匹配", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = true, onCheckedChange = {})
+                    ShuatiSwitch(checked = true, onCheckedChange = {})
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -686,7 +687,7 @@ fun QuizScreen(
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Switch(
+                                ShuatiSwitch(
                                     checked = fillOrderFree,
                                     onCheckedChange = { toggleOrderFree(it) },
                                     modifier = Modifier.scale(0.8f)

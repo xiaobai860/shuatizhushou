@@ -3,6 +3,7 @@ package com.example.shuati.ui.pages
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,9 +19,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -327,54 +330,72 @@ private fun PlanCard(
 
 @Composable
 private fun PunchCalendar(plan: StudyPlan, pp: com.example.shuati.model.PlanProgress?, today: String) {
-    val cols = plan.cycleDays.coerceAtLeast(1)
-    val rows = 4
     val startCal = Calendar.getInstance().apply { time = dateFmt.parse(plan.startDate) ?: Date() }
-    val todayCal = Calendar.getInstance().apply { time = dateFmt.parse(today) ?: Date() }
-    val daysBetween = ((todayCal.timeInMillis - startCal.timeInMillis) / 86400000L).toInt()
-    val currentRound = if (plan.cycleDays > 0) (daysBetween / plan.cycleDays).coerceAtLeast(0) else 0
+    // 显示范围：有截止日则到截止日；否则覆盖到预计完成（至少 4 周）
+    val endCal = if (plan.endDate != null) {
+        Calendar.getInstance().apply { time = dateFmt.parse(plan.endDate) ?: Date() }
+    } else {
+        val daysToFinish = if (plan.dailyCount > 0) ceil(plan.totalQuestions.toDouble() / plan.dailyCount).toInt() else 0
+        val span = if (daysToFinish > 28) daysToFinish else 28
+        Calendar.getInstance().apply { time = startCal.time; add(Calendar.DAY_OF_YEAR, span) }
+    }
+    // 对齐到整周（周一为首列、周日为尾列），保证 7 列占满整行、无右侧空白
+    val gridStart = Calendar.getInstance().apply { time = startCal.time }
+    while (gridStart.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) gridStart.add(Calendar.DAY_OF_YEAR, -1)
+    val gridEnd = Calendar.getInstance().apply { time = endCal.time }
+    while (gridEnd.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY) gridEnd.add(Calendar.DAY_OF_YEAR, 1)
+    val totalDays = ((gridEnd.timeInMillis - gridStart.timeInMillis) / 86400000L).toInt() + 1
+    val weeks = totalDays / 7
 
-    Text("打卡日历（每轮 $cols 天）", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
+    val weekLabels = listOf("一", "二", "三", "四", "五", "六", "日")
+    Text("打卡日历", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        weekLabels.forEach {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(it, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        repeat(rows) { r ->
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(cols) { c ->
-                    val cellDate = Calendar.getInstance().apply {
-                        time = startCal.time
-                        add(Calendar.DAY_OF_YEAR, r * cols + c)
-                    }
-                    val ds = dateFmt.format(cellDate.time)
-                    val isPastOrToday = cellDate.timeInMillis <= todayCal.timeInMillis
+        repeat(weeks) { r ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(7) { c ->
+                    val idx = r * 7 + c
+                    val cal = Calendar.getInstance().apply { time = gridStart.time; add(Calendar.DAY_OF_YEAR, idx) }
+                    val ds = dateFmt.format(cal.time)
+                    val inRange = cal.timeInMillis in startCal.timeInMillis..endCal.timeInMillis
                     val isToday = ds == today
                     val punched = pp?.punchInDates?.contains(ds) ?: false
                     val expiredCell = plan.endDate != null && ds > plan.endDate
                     val bg = when {
+                        !inRange -> MaterialTheme.colorScheme.surface
                         punched -> MaterialTheme.colorScheme.primary
                         isToday -> MaterialTheme.colorScheme.tertiary
                         expiredCell -> MaterialTheme.colorScheme.surfaceVariant
-                        isPastOrToday -> MaterialTheme.colorScheme.outlineVariant
-                        else -> MaterialTheme.colorScheme.surfaceVariant
+                        else -> MaterialTheme.colorScheme.outlineVariant
                     }
                     val txtColor = when {
+                        !inRange -> MaterialTheme.colorScheme.surface
                         punched || isToday -> MaterialTheme.colorScheme.onPrimary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
-                    Surface(
-                        color = bg, shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.size(28.dp)
+                    Box(
+                        Modifier.weight(1f).aspectRatio(1f).clip(MaterialTheme.shapes.extraSmall).background(bg),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("${r * cols + c + 1}", fontSize = 11.sp, color = txtColor)
-                        }
+                        if (inRange) Text("${cal.get(Calendar.DAY_OF_MONTH)}", fontSize = 11.sp, color = txtColor)
                     }
                 }
             }
         }
     }
-    Spacer(Modifier.height(4.dp))
-    Text("第 ${currentRound + 1} 轮 · 当前轮第 ${(daysBetween % plan.cycleDays).coerceAtLeast(0) + 1} 天",
-        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (plan.endDate != null) {
+        Spacer(Modifier.height(4.dp))
+        Text("计划周期 ${plan.startDate} ~ ${plan.endDate}",
+            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 private fun buildSessionIds(repo: com.example.shuati.data.AppRepository, plan: StudyPlan): List<String> {
@@ -398,12 +419,24 @@ private fun PlanEditDialog(
     var selectedBankId by remember { mutableStateOf(initial?.bankId ?: "") }
     var dailyCount by remember { mutableStateOf((initial?.dailyCount ?: 10).toString()) }
     var cycleDays by remember { mutableStateOf((initial?.cycleDays ?: 7).toString()) }
-    var dailyTargetCeiling by remember { mutableStateOf((initial?.dailyTargetCeiling ?: 0).toString()) }
     var mode by remember { mutableStateOf(initial?.mode ?: "study") }
     var orderType by remember { mutableStateOf(initial?.orderType ?: "sequence") }
     var startDate by remember { mutableStateOf(initial?.startDate ?: dateFmt.format(Date())) }
     var endDate by remember { mutableStateOf(initial?.endDate ?: "") }
     var bankExpanded by remember { mutableStateOf(false) }
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+    val startState = rememberDatePickerState(
+        initialSelectedDateMillis = runCatching { dateFmt.parse(startDate)?.time }.getOrNull() ?: System.currentTimeMillis()
+    )
+    val endState = rememberDatePickerState(
+        initialSelectedDateMillis = runCatching {
+            if (endDate.isNotBlank()) dateFmt.parse(endDate)?.time else dateFmt.parse(startDate)?.time
+        }.getOrNull() ?: System.currentTimeMillis()
+    )
+    // 每日题量上限 = 所选择题库的题目数（全部题库则为所有题库题目数之和）
+    val selectedMax = if (selectedBankId.isEmpty()) banks.sumOf { it.questions.size }
+    else (repo.getBankById(selectedBankId)?.questions?.size ?: 0)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -436,15 +469,13 @@ private fun PlanEditDialog(
                     }
                 }
                 OutlinedTextField(dailyCount, { dailyCount = it.filter { c -> c.isDigit() } },
-                    label = { Text("每日题量") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(dailyTargetCeiling, { dailyTargetCeiling = it.filter { c -> c.isDigit() } },
-                    label = { Text("每日上限（0=不限）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    label = { Text("每日题量") }, singleLine = true,
+                    supportingText = { Text("最多 $selectedMax 题（所选${if (selectedBankId.isEmpty()) "全部" else ""}题库题目数）") },
+                    modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(cycleDays, { cycleDays = it.filter { c -> c.isDigit() } },
                     label = { Text("每轮天数") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(startDate, { startDate = it }, label = { Text("开始日期 (YYYY-MM-DD)") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(endDate, { endDate = it }, label = { Text("截止日期 (YYYY-MM-DD，留空不限)") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                DateField("开始日期", startDate, "选择开始日期", onClick = { showStartPicker = true })
+                DateField("截止日期", endDate, "留空 = 不限", onClick = { showEndPicker = true })
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("模式：", fontSize = 13.sp)
                     Spacer(Modifier.width(4.dp))
@@ -472,13 +503,12 @@ private fun PlanEditDialog(
                         bankId = bank.id,
                         bankName = bank.name,
                         totalQuestions = bank.questions.size,
-                        dailyCount = dailyCount.toIntOrNull() ?: 10,
+                        dailyCount = (dailyCount.toIntOrNull() ?: 1).coerceIn(1, if (selectedMax > 1) selectedMax else 1),
                         mode = mode,
                         orderType = orderType,
                         startDate = startDate,
                         endDate = endDate.ifBlank { null },
                         cycleDays = cycleDays.toIntOrNull() ?: 7,
-                        dailyTargetCeiling = dailyTargetCeiling.toIntOrNull() ?: 0,
                         isAllBanks = true,
                         enabled = initial?.enabled ?: true,
                         archived = initial?.archived ?: false,
@@ -495,14 +525,13 @@ private fun PlanEditDialog(
                             bankId = bank.id,
                             bankName = bank.name,
                             totalQuestions = bank.questions.size,
-                            dailyCount = dailyCount.toIntOrNull() ?: 10,
+                            dailyCount = (dailyCount.toIntOrNull() ?: 1).coerceIn(1, if (selectedMax > 1) selectedMax else 1),
                             mode = mode,
                             orderType = orderType,
                             startDate = startDate,
                             endDate = endDate.ifBlank { null },
-                            cycleDays = cycleDays.toIntOrNull() ?: 7,
-                            dailyTargetCeiling = dailyTargetCeiling.toIntOrNull() ?: 0,
-                            isAllBanks = false,
+                        cycleDays = cycleDays.toIntOrNull() ?: 7,
+                        isAllBanks = false,
                             enabled = initial?.enabled ?: true,
                             archived = initial?.archived ?: false,
                             createdAt = initial?.createdAt ?: System.currentTimeMillis()
@@ -515,4 +544,53 @@ private fun PlanEditDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+
+    if (showStartPicker) {
+        DatePickerDialog(
+            onDismissRequest = { showStartPicker = false },
+            confirmButton = { TextButton(onClick = {
+                startState.selectedDateMillis?.let { startDate = dateFmt.format(Date(it)) }
+                showStartPicker = false
+            }) { Text("确定") } },
+            dismissButton = { TextButton(onClick = { showStartPicker = false }) { Text("取消") } }
+        ) { DatePicker(state = startState) }
+    }
+    if (showEndPicker) {
+        DatePickerDialog(
+            onDismissRequest = { showEndPicker = false },
+            confirmButton = { TextButton(onClick = {
+                endState.selectedDateMillis?.let { endDate = dateFmt.format(Date(it)) }
+                showEndPicker = false
+            }) { Text("确定") } },
+            dismissButton = { TextButton(onClick = { showEndPicker = false }) { Text("取消") } }
+        ) { DatePicker(state = endState) }
+    }
+}
+
+/** 可点击的日期字段（用 Surface 承载点击，避免 OutlinedTextField 吞掉手势导致选择器不弹） */
+@Composable
+private fun DateField(label: String, value: String, placeholder: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.extraSmall,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(label, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    if (value.isBlank()) placeholder else value,
+                    fontSize = 15.sp,
+                    color = if (value.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Icon(Icons.Filled.DateRange, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

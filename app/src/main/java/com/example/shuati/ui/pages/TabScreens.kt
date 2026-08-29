@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import android.os.Build
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
 import java.time.DayOfWeek
@@ -37,6 +38,8 @@ import com.example.shuati.ui.components.ListRow
 import com.example.shuati.ui.components.SectionTitle
 import com.example.shuati.ui.components.SoftButton
 import com.example.shuati.ui.components.StatTile
+import com.example.shuati.ui.components.ShuatiSwitch
+import com.example.shuati.data.AppRepository.StorageBreakdown
 import com.example.shuati.ui.components.ThinProgress
 import com.example.shuati.ui.theme.ShuatiSpacing
 import com.example.shuati.ui.theme.semantic
@@ -194,11 +197,11 @@ fun LibraryTabScreen(navController: NavController) {
                                     val fN = favByBank[bank.id] ?: 0
                                     if (wN > 0) {
                                         Spacer(Modifier.width(8.dp))
-                                        Badge("重 $wN", color = MaterialTheme.semantic.errorContainer, textColor = MaterialTheme.semantic.onErrorContainer)
+                                        Badge("错题 $wN", color = MaterialTheme.semantic.errorContainer, textColor = MaterialTheme.semantic.onErrorContainer)
                                     }
                                     if (fN > 0) {
                                         Spacer(Modifier.width(4.dp))
-                                        Badge("收 $fN", color = MaterialTheme.semantic.warningContainer, textColor = MaterialTheme.semantic.onWarningContainer)
+                                        Badge("收藏 $fN", color = MaterialTheme.semantic.warningContainer, textColor = MaterialTheme.semantic.onWarningContainer)
                                     }
                                 }
                             }
@@ -482,9 +485,6 @@ private fun WeekActivityCard(history: List<com.example.shuati.model.QuizHistory>
 /** 掌握度：已掌握 / 模糊 / 未掌握 三段条 + 图例 */
 @Composable
 private fun MasteryCard(masteredN: Int, wrongN: Int, totalN: Int) {
-    val fuzzy = (totalN - masteredN - wrongN).coerceAtLeast(0)
-    val segs = listOf(masteredN, fuzzy, wrongN)
-    val sum = segs.sum().coerceAtLeast(1)
     val colors = listOf(
         MaterialTheme.colorScheme.tertiary,
         MaterialTheme.semantic.warning,
@@ -497,18 +497,33 @@ private fun MasteryCard(masteredN: Int, wrongN: Int, totalN: Int) {
             Text("$totalN 题", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            segs.forEachIndexed { i, v ->
-                Box(
-                    Modifier
-                        .weight((v.toFloat() / sum).coerceAtLeast(0.01f))
-                        .height(10.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(colors[i])
-                )
+        if (totalN == 0) {
+            // 无题库：完整空白进度条（轨道色），不显示均分占比
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+        } else {
+            val fuzzy = (totalN - masteredN - wrongN).coerceAtLeast(0)
+            val segs = listOf(masteredN, fuzzy, wrongN)
+            val sum = segs.sum().coerceAtLeast(1)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                segs.forEachIndexed { i, v ->
+                    Box(
+                        Modifier
+                            .weight((v.toFloat() / sum).coerceAtLeast(0.01f))
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(colors[i])
+                    )
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
+        val fuzzy = (totalN - masteredN - wrongN).coerceAtLeast(0)
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             MasteryLegend(colors[0], "已掌握", masteredN)
             MasteryLegend(colors[1], "模糊", fuzzy)
@@ -532,13 +547,22 @@ fun MineTabScreen(navController: NavController) {
     val repo = repository()
     val ctx = LocalContext.current
     var storageUsed by remember { mutableStateOf(0L) }
+    var storageBreakdown by remember { mutableStateOf(StorageBreakdown(0, 0, 0)) }
     var remindOn by remember { mutableStateOf(true) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
-    val version = remember {
-        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
+    val pkgInfo = remember {
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
     }
-    LaunchedEffect(Unit) { storageUsed = repo.storageUsedBytes() }
+    val version = pkgInfo?.versionName
+    val buildNumber = pkgInfo?.let {
+        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode else it.versionCode.toLong()
+        code.toString()
+    }
+    LaunchedEffect(Unit) {
+        storageUsed = repo.storageUsedBytes()
+        storageBreakdown = repo.storageBreakdown()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -589,7 +613,7 @@ fun MineTabScreen(navController: NavController) {
                             Text("我的题库", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(Modifier.height(3.dp))
                             Text(
-                                "数据保存在本机 · v$version",
+                                "数据保存在本机",
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -653,21 +677,26 @@ fun MineTabScreen(navController: NavController) {
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        Text("已用", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(Modifier.height(10.dp))
-                    ThinProgress(progress = (storageUsed / 1024.0 / 10240.0).toFloat().coerceIn(0f, 1f))
-                    Spacer(Modifier.height(10.dp))
-                    // 明细：题库 / 记录 / 其他（按比例估算）
-                    val qBytes = repo.getBanks().sumOf { it.questions.size } * 600L
-                    val recBytes = (repo.getWrongRecords().size + repo.getHistoryRecords().size) * 400L
-                    val otherBytes = (storageUsed - qBytes - recBytes).coerceAtLeast(0)
+                    Spacer(Modifier.height(12.dp))
+                    // 颜色图例（放在进度条前面，对应下方三段数据）
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.weight(1f)) { StorageDetail("题库", qBytes) }
-                        Box(Modifier.weight(1f)) { StorageDetail("记录", recBytes) }
-                        Box(Modifier.weight(1f)) { StorageDetail("其他", otherBytes) }
+                        Box(Modifier.weight(1f)) { StorageDetail("题库", storageBreakdown.banks, MaterialTheme.colorScheme.primary) }
+                        Box(Modifier.weight(1f)) { StorageDetail("记录", storageBreakdown.records, MaterialTheme.colorScheme.tertiary) }
+                        Box(Modifier.weight(1f)) { StorageDetail("其他", storageBreakdown.other, MaterialTheme.colorScheme.outlineVariant) }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
+                    // 进度条：题库 / 记录 / 其他 三段占比（三段之和 = 真实总占用）
+                    val totalBytes = (storageBreakdown.banks + storageBreakdown.records + storageBreakdown.other).toFloat().coerceAtLeast(1f)
+                    Row(Modifier.fillMaxWidth().height(10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Box(Modifier.weight((storageBreakdown.banks / totalBytes).coerceAtLeast(0.001f)).height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.primary))
+                        Box(Modifier.weight((storageBreakdown.records / totalBytes).coerceAtLeast(0.001f)).height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.tertiary))
+                        Box(Modifier.weight((storageBreakdown.other / totalBytes).coerceAtLeast(0.001f)).height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.outlineVariant))
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         "数据保存在本机，可在「备份还原」中导出备份",
                         fontSize = 11.sp,
@@ -705,7 +734,7 @@ fun MineTabScreen(navController: NavController) {
                         title = "动态取色",
                         subtitle = "从壁纸提取主题色，正确/错误色保持稳定",
                         trailing = {
-                            Switch(
+                            ShuatiSwitch(
                                 checked = repo.dynamicColor,
                                 onCheckedChange = { repo.saveDynamicColor(it) }
                             )
@@ -717,7 +746,7 @@ fun MineTabScreen(navController: NavController) {
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "每日提醒",
                         subtitle = "每天 21:00 提醒打卡",
-                        trailing = { Switch(checked = remindOn, onCheckedChange = { remindOn = it }) }
+                        trailing = { ShuatiSwitch(checked = remindOn, onCheckedChange = { remindOn = it }) }
                     )
                 }
             }
@@ -743,7 +772,7 @@ fun MineTabScreen(navController: NavController) {
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "版本",
-                        subtitle = "v$version · 柔和渐变 · 亲和活力",
+                        subtitle = "v$version · build $buildNumber",
                         showDivider = false
                     )
                 }
@@ -822,9 +851,13 @@ fun MineTabScreen(navController: NavController) {
 
 /** 存储明细小项（须在 Row/Column 内调用，weight 由父级 Row 分配） */
 @Composable
-private fun StorageDetail(label: String, bytes: Long) {
+private fun StorageDetail(label: String, bytes: Long, color: Color) {
     Column {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(5.dp))
+            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Spacer(Modifier.height(2.dp))
         Text(formatBytes(bytes), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface)

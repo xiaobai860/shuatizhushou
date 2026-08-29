@@ -1,79 +1,102 @@
 package com.example.shuati.logic
 
 import com.example.shuati.model.QuestionBank
-import com.example.shuati.model.QuestionType
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 
 /**
- * 导出题库为 Excel（与导入格式互相对应，并可被小程序 buildBankWorkbook 读取）。
- * 列：题目ID | 题型 | 题干 | 选项A | 选项B | 选项C | 选项D | 正确答案 | 解析 | 标签
+ * 题库导出为 Excel（.xlsx）。
+ *
+ * 列头与 ExcelParser.parseByHeader 完全对齐，因此生成的文件可被导入流程原样解析，
+ * 实现「备份 → 还原」的 Excel 往返一致：
+ *   题目ID | 题型 | 题干 | 选项A..G | 正确答案 | 解析 | 标签 | 不限顺序
+ *
+ * 题型以枚举名（single/multiple/judge/fill/essay）写出；多选答案以逗号分隔；
+ * 标签以「|」分隔；不限顺序仅多空填空有效，写「是/否」。
  */
 object ExcelWriter {
 
-    private val TYPE_LABEL = mapOf(
-        QuestionType.single to "单选",
-        QuestionType.multiple to "多选",
-        QuestionType.judge to "判断",
-        QuestionType.fill to "填空",
-        QuestionType.essay to "简答"
+    private val HEADER = listOf(
+        "题目ID", "题型", "题干",
+        "选项A", "选项B", "选项C", "选项D", "选项E", "选项F", "选项G",
+        "正确答案", "解析", "标签", "不限顺序"
     )
 
-    fun writeBank(bank: QuestionBank, out: OutputStream) {
+    private const val COL_OPTIONS = 3   // 选项A 起始列
+    private const val COL_ANSWER = 10
+    private const val COL_EXPLANATION = 11
+    private const val COL_TAGS = 12
+    private const val COL_ORDER_FREE = 13
+
+    /** 把题库写入一个 XSSFWorkbook（表头 + 题目行）。供下方各导出入口复用。 */
+    private fun buildWorkbook(bank: QuestionBank): XSSFWorkbook {
         val wb = XSSFWorkbook()
-        val sheet = wb.createSheet(bank.name.take(31))
-        val header = listOf("题目ID", "题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "解析", "标签")
-        val headRow = sheet.createRow(0)
-        header.forEachIndexed { i, h -> headRow.createCell(i).setCellValue(h) }
+        val sheet = wb.createSheet("题库")
 
-        bank.questions.forEachIndexed { r, q ->
-            val row = sheet.createRow(r + 1)
+        val hrow = sheet.createRow(0)
+        HEADER.forEachIndexed { i, name -> hrow.createCell(i).setCellValue(name) }
+
+        bank.questions.forEachIndexed { idx, q ->
+            val row = sheet.createRow(idx + 1)
+            row.createCell(0).setCellValue(q.id)
+            row.createCell(1).setCellValue(q.type.name)
+            row.createCell(2).setCellValue(q.question)
+
             val opts = q.options ?: emptyList()
-            val answer = if (q.answer is List<*>) (q.answer as List<*>).joinToString(",")
-            else (q.answer ?: "")
-            val tags = (q.tags ?: emptyList()).joinToString(",")
-            val values = listOf(
-                q.id, TYPE_LABEL[q.type] ?: q.type, q.question,
-                opts.getOrNull(0) ?: "", opts.getOrNull(1) ?: "",
-                opts.getOrNull(2) ?: "", opts.getOrNull(3) ?: "",
-                answer, q.explanation ?: "", tags
-            )
-            values.forEachIndexed { i, v -> row.createCell(i).setCellValue(v?.toString() ?: "") }
+            for (i in 0 until 7) {
+                opts.getOrNull(i)?.let { row.createCell(COL_OPTIONS + i).setCellValue(it) }
+            }
+
+            row.createCell(COL_ANSWER).setCellValue(q.answer ?: "")
+            q.explanation?.let { row.createCell(COL_EXPLANATION).setCellValue(it) }
+            if (q.tags.isNotEmpty()) row.createCell(COL_TAGS).setCellValue(q.tags.joinToString("|"))
+            row.createCell(COL_ORDER_FREE).setCellValue(if (q.orderFree) "是" else "否")
         }
-
-        val widths = intArrayOf(10, 8, 36, 16, 16, 16, 16, 20, 24, 18)
-        widths.forEachIndexed { i, w -> sheet.setColumnWidth(i, w * 256) }
-
-        wb.write(out)
-        wb.close()
+        return wb
     }
 
-    /**
-     * 生成导入模板（含表头 + 各题型示例数据）。与 writeBank 列格式一致，
-     * 可直接填写后通过导入解析。等价小程序 buildTemplateWorkbook。
-     */
+    /** 备份用：直接产出 xlsx 字节数组（供 ZIP 内嵌）。 */
+    fun writeBankToBytes(bank: QuestionBank): ByteArray {
+        val wb = buildWorkbook(bank)
+        val out = ByteArrayOutputStream()
+        try {
+            wb.write(out)
+        } finally {
+            wb.close()
+        }
+        return out.toByteArray()
+    }
+
+    /** 单题库导出（题库页「导出」按钮）：写入给定 OutputStream。 */
+    fun writeBank(bank: QuestionBank, out: OutputStream) {
+        val wb = buildWorkbook(bank)
+        try {
+            wb.write(out)
+        } finally {
+            wb.close()
+        }
+    }
+
+    /** 下载导入模板：表头 + 两行示例，供用户在 Excel/WPS 中填写后导入。 */
     fun writeTemplate(out: OutputStream) {
         val wb = XSSFWorkbook()
-        val sheet = wb.createSheet("题库模板")
-        val header = listOf("题目ID", "题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "解析", "标签")
-        val headRow = sheet.createRow(0)
-        header.forEachIndexed { i, h -> headRow.createCell(i).setCellValue(h) }
+        val sheet = wb.createSheet("题库")
+        val hrow = sheet.createRow(0)
+        HEADER.forEachIndexed { i, name -> hrow.createCell(i).setCellValue(name) }
 
-        val examples = listOf(
-            listOf("1", "单选", "以下哪个是水果？", "苹果", "石头", "铁块", "木板", "A", "苹果属于水果类植物果实", "生活常识"),
-            listOf("2", "多选", "以下哪些是编程语言？", "Python", "Java", "钢铁", "Go", "A,B,D", "Python、Java、Go 均为主流编程语言", "编程,技术"),
-            listOf("3", "判断", "JavaScript 是脚本语言", "", "", "", "", "正确", "JS 最初作为浏览器脚本语言设计", "编程"),
-            listOf("4", "填空", "___ 是世界第一长河，全长约 ___ 千米", "", "", "", "", "尼罗河|6853", "多空填空答案用 | 分隔", "地理")
+        val example = listOf(
+            listOf("q1", "single", "下列哪一项是正确的？", "A.一", "B.二", "C.三", "D.四", "", "", "A", "解析示例", "标签1|标签2", "否"),
+            listOf("q2", "judge", "判断题示例：地球是圆的。", "", "", "", "", "", "", "正确", "解析示例", "", "否")
         )
-        examples.forEachIndexed { r, row ->
-            val excelRow = sheet.createRow(r + 1)
-            row.forEachIndexed { i, v -> excelRow.createCell(i).setCellValue(v) }
+        example.forEachIndexed { r, cols ->
+            val row = sheet.createRow(r + 1)
+            cols.forEachIndexed { c, v -> if (v.isNotEmpty()) row.createCell(c).setCellValue(v) }
         }
-
-        val widths = intArrayOf(10, 8, 36, 16, 16, 16, 16, 20, 24, 18)
-        widths.forEachIndexed { i, w -> sheet.setColumnWidth(i, w * 256) }
-
-        wb.write(out)
-        wb.close()
+        try {
+            wb.write(out)
+        } finally {
+            wb.close()
+        }
     }
 }

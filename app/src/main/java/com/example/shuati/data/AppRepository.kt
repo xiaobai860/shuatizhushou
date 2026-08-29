@@ -440,9 +440,16 @@ class AppRepository(private val context: Context) {
     }
 
     // ─── 备份 / 还原 ─────────────────────────────────────────────
+    /** 读取完整错答历史 Map（key="bankId::questionId"） */
+    fun getAllWrongAnswers(): Map<String, List<String>> {
+        val raw = readString(WRONG_ANSWERS_KEY, "")
+        if (raw.isBlank()) return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
+    }
+
     fun buildBackupData(): BackupData {
         return BackupData(
-            version = 5,
+            version = 6,
             exportedAt = System.currentTimeMillis(),
             banks = getBanks(),
             wrongRecords = getWrongRecords(),
@@ -451,16 +458,17 @@ class AppRepository(private val context: Context) {
             history = getHistoryRecords(),
             studyPlans = getStudyPlans(),
             planProgress = getAllPlanProgress(),
+            questionStats = getQuestionStats(),
+            wrongAnswers = getAllWrongAnswers(),
             settings = AppSettings(
                 masteryTarget = getMasteryTarget(),
                 masteryStreaks = getMasteryStreaks(),
                 dedupThreshold = getDedupThreshold(),
-                dynamicColor = dynamicColor
+                dynamicColor = dynamicColor,
+                themeMode = themeMode
             )
         )
     }
-
-    fun exportBackupJson(): String = json.encodeToString(buildBackupData())
 
     fun restoreBackup(data: BackupData, overwriteAll: Boolean): RestoreResult {
         if (data.banks.isEmpty()) return RestoreResult(0, 0, "备份文件格式错误")
@@ -546,6 +554,7 @@ class AppRepository(private val context: Context) {
                 saveMasteryStreaks(data.settings.masteryStreaks)
                 saveDedupThreshold(data.settings.dedupThreshold)
                 saveDynamicColor(data.settings.dynamicColor)
+                saveThemeMode(data.settings.themeMode)
             } else {
                 if (readString(MASTERY_TARGET_KEY, "") == "") saveMasteryTarget(data.settings.masteryTarget)
                 val localStreaks = getMasteryStreaks()
@@ -553,11 +562,87 @@ class AppRepository(private val context: Context) {
                 saveMasteryStreaks(merged)
                 if (readString(DEDUP_THRESHOLD_KEY, "") == "") saveDedupThreshold(data.settings.dedupThreshold)
                 if (readString(DYNAMIC_COLOR_KEY, "") == "") saveDynamicColor(data.settings.dynamicColor)
+                if (readString(THEME_MODE_KEY, "") == "") saveThemeMode(data.settings.themeMode)
             }
+        }
+
+        // 每题正确率统计（key="bankId::questionId"）
+        if (data.questionStats.isNotEmpty()) {
+            if (overwriteAll) writeString(QUESTION_STATS_KEY, json.encodeToString(data.questionStats))
+            else if (readString(QUESTION_STATS_KEY, "").isBlank()) writeString(QUESTION_STATS_KEY, json.encodeToString(data.questionStats))
+        }
+        // 每题错答历史
+        if (data.wrongAnswers.isNotEmpty()) {
+            if (overwriteAll) writeString(WRONG_ANSWERS_KEY, json.encodeToString(data.wrongAnswers))
+            else if (readString(WRONG_ANSWERS_KEY, "").isBlank()) writeString(WRONG_ANSWERS_KEY, json.encodeToString(data.wrongAnswers))
         }
 
         return RestoreResult(imported, skipped)
     }
+
+    /**
+     * 导出为 ZIP：app_data.json（仅题库元数据，题目置空）+ banks/<id>.xlsx（每题库一份 Excel）。
+     * 题目以原生 Excel 存放，不混入 JSON；还原时由 ExcelParser 回填题目。
+     */
+    fun exportBackupZip(): ByteArray {
+        val data = buildBackupData()
+        val baos = java.io.ByteArrayOutputStream()
+        val zos = java.util.zip.ZipOutputStream(baos)
+        try {
+            // 应用数据 JSON（题库题目置空，避免与 Excel 重复）
+            val meta = data.copy(banks = data.banks.map { it.copy(questions = emptyList()) })
+            zos.putNextEntry(java.util.zip.ZipEntry("app_data.json"))
+            zos.write(json.encodeToString(meta).toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+            // 每题库一份 Excel
+            data.banks.forEach { bank ->
+                if (bank.questions.isNotEmpty()) {
+                    zos.putNextEntry(java.util.zip.ZipEntry("banks/${safeZipName(bank.id)}.xlsx"))
+                    zos.write(com.example.shuati.logic.ExcelWriter.writeBankToBytes(bank))
+                    zos.closeEntry()
+                }
+            }
+        } finally {
+            zos.finish()
+            zos.close()
+        }
+        return baos.toByteArray()
+    }
+
+    /**
+     * 从 ZIP 还原：读取 app_data.json（含题库元数据），将 banks/<id>.xlsx 题目回填，
+     * 再走统一 restoreBackup 逻辑。仅支持新版 ZIP 备份格式。
+     */
+    fun restoreBackupFromZip(bytes: ByteArray, overwriteAll: Boolean): RestoreResult {
+        val entries = LinkedHashMap<String, ByteArray>()
+        java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(bytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes()
+                entry = zis.nextEntry
+            }
+        }
+        val jsonBytes = entries["app_data.json"] ?: return RestoreResult(0, 0, "备份文件格式错误：缺少 app_data.json")
+        val meta = try {
+            json.decodeFromString<BackupData>(jsonBytes.toString(Charsets.UTF_8))
+        } catch (e: Exception) {
+            return RestoreResult(0, 0, "备份解析失败：${e.message}")
+        }
+        val banks = meta.banks.map { b ->
+            val xlsx = entries["banks/${safeZipName(b.id)}.xlsx"]
+            if (xlsx != null) {
+                try {
+                    val parsed = com.example.shuati.logic.ExcelParser.parseStream(java.io.ByteArrayInputStream(xlsx), b.name)
+                    b.copy(questions = parsed.bank.questions)
+                } catch (_: Exception) { b }
+            } else b
+        }
+        return restoreBackup(meta.copy(banks = banks), overwriteAll)
+    }
+
+    /** 题库 id 转为安全文件名（去除非法字符，保持两侧一致） */
+    private fun safeZipName(id: String): String =
+        id.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
 
     fun clearAllData() {
         runBlocking {
@@ -574,7 +659,32 @@ class AppRepository(private val context: Context) {
         return dir.listFiles()?.sumOf { it.length() } ?: 0L
     }
 
-    /** 查重：在指定题库中找出相似度 ≥ 阈值的题目对。等价 dedup 页逻辑。 */
+    /**
+     * 存储占用明细（字节）：题库 / 记录（错题+收藏+历史+计划）/ 其他（设置等开销）。
+     * 三段之和恒等于 [storageUsedBytes] 的真实文件大小，随数据增长而真实变化，
+     * 不再使用「每题估算字节」这类会与总占用脱节的假值。
+     */
+    data class StorageBreakdown(val banks: Long, val records: Long, val other: Long)
+
+    fun storageBreakdown(): StorageBreakdown {
+        val banks = getBanks()
+        val bankBytes = safeJsonBytes(banks)
+        val recBytes = safeJsonBytes(getWrongRecords()) +
+            safeJsonBytes(getFavoriteRecords()) +
+            safeJsonBytes(getHistoryRecords()) +
+            safeJsonBytes(getStudyPlans())
+        val total = storageUsedBytes().coerceAtLeast(1)
+        val dataBytes = (bankBytes + recBytes).coerceAtLeast(1)
+        val bankPart = total * bankBytes / dataBytes
+        val recPart = total * recBytes / dataBytes
+        val other = (total - bankPart - recPart).coerceAtLeast(0)
+        return StorageBreakdown(bankPart, recPart, other)
+    }
+
+    private inline fun <reified T> safeJsonBytes(value: T): Long =
+        runCatching { json.encodeToString(value).toByteArray().size.toLong() }.getOrDefault(0L)
+
+    /** 查重：在指定题库中找出"题干相似且选项/答案一致"的重复题目对。等价 dedup 页逻辑。 */
     fun findDuplicates(bank: QuestionBank, threshold: Double): List<Triple<Question, Question, Double>> {
         val result = mutableListOf<Triple<Question, Question, Double>>()
         val qs = bank.questions
@@ -582,8 +692,8 @@ class AppRepository(private val context: Context) {
             for (j in i + 1 until qs.size) {
                 // 仅比对同类型（单选/多选同组），对齐小程序 superType
                 if (superType(qs[i].type) != superType(qs[j].type)) continue
-                val s = Scoring.similarity(qs[i].question, qs[j].question)
-                if (s >= threshold) result.add(Triple(qs[i], qs[j], s))
+                val m = Scoring.compareForDedup(qs[i], qs[j], threshold)
+                if (m.duplicate) result.add(Triple(qs[i], qs[j], m.score))
             }
         }
         return result.sortedByDescending { it.third }
@@ -601,7 +711,7 @@ class AppRepository(private val context: Context) {
         for (i in qs.indices) for (j in i + 1 until qs.size) {
             // 仅比对同类型（单选/多选同组），对齐小程序 superType
             if (superType(qs[i].type) != superType(qs[j].type)) continue
-            if (Scoring.similarity(qs[i].question, qs[j].question) >= threshold) union(i, j)
+            if (Scoring.compareForDedup(qs[i], qs[j], threshold).duplicate) union(i, j)
         }
         val groups = mutableMapOf<Int, MutableList<String>>()
         qs.forEachIndexed { idx, q -> groups.getOrPut(find(idx)) { mutableListOf() }.add(q.id) }
@@ -609,17 +719,17 @@ class AppRepository(private val context: Context) {
     }
 
     /** 跨题库查重：在多个题库间聚合重复簇，返回每簇的 (bankId, questionId) 列表 */
-    private data class DedupItem(val bankId: String, val questionId: String, val type: QuestionType, val text: String)
+    private data class DedupItem(val bankId: String, val questionId: String, val type: QuestionType, val text: String, val options: List<String>?, val answer: String?)
 
     fun findDuplicateGroupsAcrossBanks(banks: List<QuestionBank>, threshold: Double): List<List<Pair<String, String>>> {
-        val all = banks.flatMap { b -> b.questions.map { DedupItem(b.id, it.id, it.type, it.question) } }
+        val all = banks.flatMap { b -> b.questions.map { DedupItem(b.id, it.id, it.type, it.question, it.options, it.answer) } }
         val parent = IntArray(all.size) { it }
         fun find(x: Int): Int { var r = x; while (parent[r] != r) { parent[r] = parent[parent[r]]; r = parent[r] }; return r }
         fun union(a: Int, b: Int) { parent[find(a)] = find(b) }
         for (i in all.indices) for (j in i + 1 until all.size) {
             // 仅比对同类型（单选/多选同组），对齐小程序 superType
             if (superType(all[i].type) != superType(all[j].type)) continue
-            if (Scoring.similarity(all[i].text, all[j].text) >= threshold) union(i, j)
+            if (Scoring.compareForDedup(all[i].text, all[i].options, all[i].answer, all[j].text, all[j].options, all[j].answer, threshold).duplicate) union(i, j)
         }
         val groups = mutableMapOf<Int, MutableList<Pair<String, String>>>()
         all.forEachIndexed { idx, t -> groups.getOrPut(find(idx)) { mutableListOf() }.add(t.bankId to t.questionId) }

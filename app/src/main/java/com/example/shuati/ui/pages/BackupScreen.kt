@@ -12,7 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Restore
@@ -27,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.shuati.model.BackupData
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.HeroCard
@@ -38,7 +36,6 @@ import com.example.shuati.ui.components.SoftButton
 import com.example.shuati.ui.theme.ShuatiSpacing
 import com.example.shuati.ui.theme.semantic
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,11 +59,11 @@ fun BackupScreen(navController: NavController) {
             scope.launch {
                 try {
                     context.contentResolver.openOutputStream(uri)?.use { os ->
-                        os.write(repo.exportBackupJson().toByteArray(Charsets.UTF_8))
+                        os.write(repo.exportBackupZip())
                     }
                     repo.recordBackup(System.currentTimeMillis())
                     backupHistory = repo.getBackupHistory()
-                    status = "备份已导出"
+                    status = "备份已导出（ZIP，含题库 Excel）"
                 } catch (e: Exception) { status = "导出失败：${e.message}" }
             }
         }
@@ -80,10 +77,14 @@ fun BackupScreen(navController: NavController) {
         if (uri != null) {
             scope.launch {
                 try {
-                    val txt = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() } ?: ""
-                    val data = Json { ignoreUnknownKeys = true }.decodeFromString<BackupData>(txt)
-                    val r = repo.restoreBackup(data, overwrite)
-                    status = if (r.message != null) r.message!!
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                    // 仅支持新版 ZIP 备份（以 "PK\x03\x04" 魔数开头）
+                    val isZip = bytes.size >= 4 &&
+                            bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte() &&
+                            bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()
+                    if (!isZip) { status = "请选择 .zip 备份文件"; return@launch }
+                    val r = repo.restoreBackupFromZip(bytes, overwrite)
+                    status = if (r.message != null) r.message
                     else "还原完成：导入 ${r.imported} 个题库" +
                             (if (r.skipped > 0) "，跳过 ${r.skipped} 个重名" else "")
                 } catch (e: Exception) { status = "还原失败：${e.message}" }
@@ -95,7 +96,7 @@ fun BackupScreen(navController: NavController) {
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
-            ScreenTopBar("备份与还原", onBack = { navController.popBackStack() }, subtitle = "全量数据 · JSON 格式")
+            ScreenTopBar("备份与还原", onBack = { navController.popBackStack() }, subtitle = "全量数据 · ZIP 格式")
         }
     ) { padding ->
         Column(
@@ -142,9 +143,9 @@ fun BackupScreen(navController: NavController) {
                         modifier = Modifier.width(128.dp),
                         onClick = {
                             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = "application/json"
-                                putExtra(Intent.EXTRA_TITLE, "shuati_backup_${System.currentTimeMillis()}.json")
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_TITLE, "shuati_backup_${System.currentTimeMillis()}.zip")
                             }
                             exportLauncher.launch(intent)
                         }
@@ -154,20 +155,26 @@ fun BackupScreen(navController: NavController) {
 
             // 备份内容
             Spacer(Modifier.height(2.dp))
-            SectionTitle("备份内容", count = "7 类")
+            SectionTitle("备份内容", count = "9 类")
             CardBox {
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     BackupTag("题库")
                     BackupTag("题目")
+                    BackupTag("进度")
                     BackupTag("错题")
                     BackupTag("收藏")
                     BackupTag("历史")
                     BackupTag("计划")
                     BackupTag("设置")
+                    BackupTag("统计")
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "备份文件为 JSON 格式，仅保存在本机，不会上传云端。换机时手动拷贝即可。",
+                    "备份为 ZIP 文件：含应用数据 JSON 与各题库 Excel（题目以原生表格存放，不混入 JSON）。仅保存在本机，不会上传云端，换机时手动拷贝即可。",
                     fontSize = 11.5.sp, lineHeight = 18.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -182,12 +189,12 @@ fun BackupScreen(navController: NavController) {
                     iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                     iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     title = "从文件管理器选择",
-                    subtitle = "选择 .json 备份文件",
+                    subtitle = "选择 .zip 备份文件",
                     trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
                     onClick = {
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "application/json"
+                            type = "application/zip"
                         }
                         importLauncher.launch(intent)
                     },
@@ -258,19 +265,6 @@ fun BackupScreen(navController: NavController) {
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            SoftButton(
-                text = "导出备份到文件",
-                icon = Icons.Filled.Backup,
-                onClick = {
-                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/json"
-                        putExtra(Intent.EXTRA_TITLE, "shuati_backup_${System.currentTimeMillis()}.json")
-                    }
-                    exportLauncher.launch(intent)
-                }
-            )
             Spacer(Modifier.height(20.dp))
         }
     }

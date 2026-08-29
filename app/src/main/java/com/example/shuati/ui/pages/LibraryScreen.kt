@@ -260,11 +260,11 @@ fun LibraryScreen(navController: NavController) {
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (dupCount > 0) {
-                                    LibraryBadge("重$dupCount", MaterialTheme.colorScheme.tertiary)
+                                    LibraryBadge("重复$dupCount", MaterialTheme.colorScheme.tertiary)
                                 }
                                 if (suspectCount > 0) {
                                     Spacer(Modifier.width(4.dp))
-                                    LibraryBadge("错$suspectCount", MaterialTheme.colorScheme.error)
+                                    LibraryBadge("疑错$suspectCount", MaterialTheme.colorScheme.error)
                                 }
                             }
                             Spacer(Modifier.width(4.dp))
@@ -295,27 +295,26 @@ fun LibraryScreen(navController: NavController) {
                             ) { Text("只练 $wrongCount 道错题") }
                         }
                         Spacer(Modifier.height(6.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(
                                 onClick = { exportBank = bank; exportLauncher.launch("${bank.name}.xlsx") },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
                             ) {
-                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("导出")
+                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text("导出", fontSize = 12.sp)
                             }
                             OutlinedButton(
-                                onClick = {
-                                    navController.navigate("${Routes.DEDUP}?bankId=${bank.id}")
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("查重") }
+                                onClick = { navController.navigate("${Routes.DEDUP}?bankId=${bank.id}") },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) { Text("查重", fontSize = 12.sp) }
                             OutlinedButton(
-                                onClick = {
-                                    navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=browse&source=browse")
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("浏览") }
+                                onClick = { navController.navigate("${Routes.QUIZ}?bankId=${bank.id}&mode=browse&source=browse") },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) { Text("浏览", fontSize = 12.sp) }
                         }
                     }
                 }

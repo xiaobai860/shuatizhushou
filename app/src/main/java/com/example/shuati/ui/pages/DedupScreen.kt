@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.data.AppRepository
+import com.example.shuati.logic.Scoring
 import com.example.shuati.ui.repository
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
@@ -340,9 +341,9 @@ fun DuplicateGroupCard(
                     }
                 }
 
-                // 相似度徽章
+                // 相似度徽章（v3：题干 + 选项/答案校验的综合分，与分组判定一致）
                 if (group.size > 1) {
-                    val avgSim = group.drop(1).map { (_, q) -> calculateSimilarity(group[0].second, q) }.average()
+                    val avgSim = group.drop(1).map { (_, q) -> Scoring.compareForDedup(group[0].second, q, repo.getDedupThreshold()).score }.average()
                     val simColor = when {
                         avgSim >= 0.95 -> MaterialTheme.semantic.error
                         avgSim >= 0.85 -> MaterialTheme.semantic.warning
@@ -440,17 +441,4 @@ fun getTypeLabel(typeName: String): String = when (typeName) {
     "fill" -> "填空"
     "essay" -> "简答"
     else -> typeName
-}
-
-fun calculateSimilarity(q1: Question, q2: Question): Double {
-    val text1 = q1.question.trim()
-    val text2 = q2.question.trim()
-    if (text1 == text2) return 1.0
-    if (text1.isEmpty() || text2.isEmpty()) return 0.0
-
-    val bigrams1 = text1.toList().windowed(2).toSet()
-    val bigrams2 = text2.toList().windowed(2).toSet()
-    val intersection = bigrams1.intersect(bigrams2).size
-    val union = bigrams1.union(bigrams2).size
-    return if (union == 0) 0.0 else intersection * 2.0 / union
 }
