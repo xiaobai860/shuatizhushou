@@ -80,7 +80,12 @@ fun AiSettingsScreen(navController: NavController) {
             OutlinedTextField(
                 value = baseUrl, onValueChange = { baseUrl = it },
                 label = { Text("大模型地址（OpenAI 兼容）") },
-                placeholder = { Text("https://api.openai.com/v1") },
+                placeholder = {
+                    Text(
+                        "https://api.openai.com/v1",
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                },
                 singleLine = true, modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
@@ -160,6 +165,12 @@ fun AiSettingsScreen(navController: NavController) {
             OutlinedTextField(
                 value = searchKey, onValueChange = { searchKey = it },
                 label = { Text("搜索引擎 API Key") },
+                placeholder = {
+                    Text(
+                        if (searchProvider == "tavily") "如 tvly-xxxxxxxx" else "如 exa-xxxxxxxx",
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 enabled = searchProvider.isNotBlank()

@@ -52,6 +52,9 @@ import com.example.shuati.logic.AiExplainService
 import com.example.shuati.model.AiExplanation
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import com.example.shuati.logic.AiExplainService.AiStreamEvent
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -87,6 +90,10 @@ fun QuizScreen(
     var aiError by remember { mutableStateOf<String?>(null) }
     var showAiHintDialog by remember { mutableStateOf(false) }
     var aiHintDraft by remember { mutableStateOf("") }
+    // 流式进度状态
+    var aiThinking by remember { mutableStateOf<String?>(null) }
+    var aiFlow by remember { mutableStateOf("") }
+    var aiJob by remember { mutableStateOf<Job?>(null) }
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }
@@ -756,6 +763,8 @@ fun QuizScreen(
                         aiExplanation = aiMap[current.q.id] ?: current.q.aiExplanation,
                         aiBusy = aiBusy,
                         aiError = aiError,
+                        aiThinking = aiThinking,
+                        aiStreamingText = if (aiFlow.isNotEmpty()) aiFlow else null,
                         onAiClick = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
                             showAiHintDialog = true
@@ -771,19 +780,34 @@ fun QuizScreen(
             fun requestAi(hint: String) {
                 val q = current.q
                 val bid = current.bankId
-                coroutineScope.launch {
-                    aiBusy = true
-                    aiError = null
+                aiJob?.cancel()              // 取消上一次未完成的请求
+                aiBusy = true
+                aiError = null
+                aiThinking = "正在分析题目并准备资料…"
+                aiFlow = ""
+                aiJob = coroutineScope.launch {
                     try {
                         val cfg = AiConfigStore.load(context)
                         val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
                         val eff = hint.ifBlank { bankHint }
-                        val ai = AiExplainService.explain(cfg, q, eff)
-                        repo.saveAiExplanation(bid, q.id, ai)
-                        aiMap = aiMap + (q.id to ai)
+                        AiExplainService.explainStream(cfg, q, eff) { ev ->
+                            when (ev) {
+                                is AiStreamEvent.Thinking -> aiThinking = ev.msg
+                                is AiStreamEvent.Generating -> { aiThinking = null; aiFlow = "" }
+                                is AiStreamEvent.Delta -> aiFlow += ev.text
+                                is AiStreamEvent.Done -> {
+                                    repo.saveAiExplanation(bid, q.id, ev.ai)
+                                    aiMap = aiMap + (q.id to ev.ai)
+                                    aiFlow = ""
+                                }
+                                is AiStreamEvent.Error -> aiError = ev.msg
+                            }
+                        }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         aiError = e.message ?: "生成失败"
                     } finally {
+                        aiThinking = null
                         aiBusy = false
                     }
                 }
@@ -1024,6 +1048,8 @@ private fun AnswerPanel(
     aiExplanation: AiExplanation? = null,
     aiBusy: Boolean = false,
     aiError: String? = null,
+    aiThinking: String? = null,
+    aiStreamingText: String? = null,
     onAiClick: () -> Unit = {},
     onRegenerate: () -> Unit = {}
 ) {
@@ -1141,51 +1167,91 @@ private fun AnswerPanel(
 
         // ── AI 解析（大模型生成，区别于原题 explanation，默认已落盘保存） ──
         val ai = aiExplanation
-        if (ai != null) {
-            Spacer(Modifier.height(10.dp))
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("AI 解析", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.weight(1f))
-                        Text(ai.model, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
-                    if (ai.citations.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("来源：", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        ai.citations.take(3).forEach { url ->
-                            Text("• $url", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, maxLines = 2)
+        when {
+            ai != null && aiThinking == null && aiStreamingText == null -> {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI 解析", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.weight(1f))
+                            Text(ai.model, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }
-                    if (!ai.hintUsed.isNullOrBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                        if (ai.citations.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("来源：", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ai.citations.take(3).forEach { url ->
+                                Text("• $url", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, maxLines = 2)
+                            }
+                        }
+                        if (!ai.hintUsed.isNullOrBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("提示：${ai.hintUsed}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Spacer(Modifier.height(4.dp))
-                        Text("提示：${ai.hintUsed}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
-                        Text("重新生成", fontSize = 12.sp)
+                        TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
+                            Text("重新生成", fontSize = 12.sp)
+                        }
                     }
                 }
             }
-        } else {
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onAiClick, enabled = !aiBusy, modifier = Modifier.fillMaxWidth()) {
-                if (aiBusy) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("生成中…")
-                } else {
-                    Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("AI 解析")
+            aiStreamingText != null -> {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(aiStreamingText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            aiThinking != null -> {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(aiThinking, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            else -> {
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onAiClick, enabled = !aiBusy, modifier = Modifier.fillMaxWidth()) {
+                    if (aiBusy) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("生成中…")
+                    } else {
+                        Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("AI 解析")
+                    }
                 }
             }
         }
