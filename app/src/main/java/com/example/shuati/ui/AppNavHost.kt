@@ -148,6 +148,7 @@ fun AppNavHost() {
             composable(Routes.FAVORITES) { FavoritesScreen(navController) }
             composable(Routes.HISTORY) { HistoryScreen(navController) }
             composable(Routes.BACKUP) { BackupScreen(navController) }
+            composable(Routes.AI_SETTINGS) { AiSettingsScreen(navController) }
             composable(Routes.SEARCH) { SearchScreen(navController) }
             composable(Routes.STATS) { StatsScreen(navController) }
             composable(Routes.RECOMMEND) { RecommendScreen(navController) }

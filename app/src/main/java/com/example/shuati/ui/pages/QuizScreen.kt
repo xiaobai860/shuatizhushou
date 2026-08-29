@@ -47,6 +47,14 @@ import com.example.shuati.ui.components.ThinProgress
 import kotlinx.coroutines.delay
 import java.util.UUID
 import com.example.shuati.ui.theme.semantic
+import com.example.shuati.data.AiConfigStore
+import com.example.shuati.logic.AiExplainService
+import com.example.shuati.model.AiExplanation
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 答题页。等价小程序 pages/quiz。
@@ -71,6 +79,14 @@ fun QuizScreen(
 ) {
     val repo = repository()
     val context = LocalContext.current
+
+    // AI 解析状态
+    val coroutineScope = rememberCoroutineScope()
+    var aiMap by remember { mutableStateOf(mapOf<String, AiExplanation>()) }
+    var aiBusy by remember { mutableStateOf(false) }
+    var aiError by remember { mutableStateOf<String?>(null) }
+    var showAiHintDialog by remember { mutableStateOf(false) }
+    var aiHintDraft by remember { mutableStateOf("") }
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }
@@ -736,9 +752,63 @@ fun QuizScreen(
                         correct = judgeAnswer(current.q, selected),
                         fillSlotN = fillSlotN,
                         fillOrderFree = fillOrderFree,
-                        qStat = repo.getQuestionStats()["${current.bankId}::${current.q.id}"]
+                        qStat = repo.getQuestionStats()["${current.bankId}::${current.q.id}"],
+                        aiExplanation = aiMap[current.q.id] ?: current.q.aiExplanation,
+                        aiBusy = aiBusy,
+                        aiError = aiError,
+                        onAiClick = {
+                            aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
+                            showAiHintDialog = true
+                        },
+                        onRegenerate = {
+                            aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
+                            showAiHintDialog = true
+                        }
                     )
                 }
+            }
+
+            fun requestAi(hint: String) {
+                val q = current.q
+                val bid = current.bankId
+                coroutineScope.launch {
+                    aiBusy = true
+                    aiError = null
+                    try {
+                        val cfg = AiConfigStore.load(context)
+                        val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
+                        val eff = hint.ifBlank { bankHint }
+                        val ai = AiExplainService.explain(cfg, q, eff)
+                        repo.saveAiExplanation(bid, q.id, ai)
+                        aiMap = aiMap + (q.id to ai)
+                    } catch (e: Exception) {
+                        aiError = e.message ?: "生成失败"
+                    } finally {
+                        aiBusy = false
+                    }
+                }
+            }
+
+            if (showAiHintDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAiHintDialog = false },
+                    title = { Text("AI 解析") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "可补充定向提示，如「这是注册会计师考试 / 医学类」，让解析更贴合考点。留空则使用题库默认提示。",
+                                fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = aiHintDraft, onValueChange = { aiHintDraft = it },
+                                label = { Text("定向提示（可选）") },
+                                singleLine = true, modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { showAiHintDialog = false; requestAi(aiHintDraft) }) { Text("生成") } },
+                    dismissButton = { TextButton(onClick = { showAiHintDialog = false }) { Text("取消") } }
+                )
             }
 
             Row(
@@ -942,7 +1012,7 @@ private fun shortTypeLabel(type: QuestionType): String = when (type) {
 }
 
 
-/** 答案面板：浏览模式展示答案+解析；判分模式展示判定结果+解析 */
+/** 答案面板：浏览模式展示答案+解析；判分模式展示判定结果+解析；底部附 AI 解析 */
 @Composable
 private fun AnswerPanel(
     isBrowse: Boolean,
@@ -950,7 +1020,12 @@ private fun AnswerPanel(
     correct: Boolean,
     fillSlotN: Int,
     fillOrderFree: Boolean,
-    qStat: String? = null
+    qStat: String? = null,
+    aiExplanation: AiExplanation? = null,
+    aiBusy: Boolean = false,
+    aiError: String? = null,
+    onAiClick: () -> Unit = {},
+    onRegenerate: () -> Unit = {}
 ) {
     CardBox {
         if (isBrowse) {
@@ -1062,6 +1137,61 @@ private fun AnswerPanel(
                 Spacer(Modifier.height(6.dp))
                 Text("解析：${q.explanation}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)
             }
+        }
+
+        // ── AI 解析（大模型生成，区别于原题 explanation，默认已落盘保存） ──
+        val ai = aiExplanation
+        if (ai != null) {
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("AI 解析", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.weight(1f))
+                        Text(ai.model, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                    if (ai.citations.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("来源：", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ai.citations.take(3).forEach { url ->
+                            Text("• $url", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, maxLines = 2)
+                        }
+                    }
+                    if (!ai.hintUsed.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("提示：${ai.hintUsed}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
+                        Text("重新生成", fontSize = 12.sp)
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onAiClick, enabled = !aiBusy, modifier = Modifier.fillMaxWidth()) {
+                if (aiBusy) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("生成中…")
+                } else {
+                    Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("AI 解析")
+                }
+            }
+        }
+        if (!aiError.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text("⚠ $aiError", fontSize = 12.sp, color = MaterialTheme.semantic.error)
         }
     }
 }

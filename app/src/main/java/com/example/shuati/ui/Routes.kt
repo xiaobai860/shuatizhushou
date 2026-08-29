@@ -35,6 +35,7 @@ object Routes {
     const val RECOMMEND = "recommend"
     const val STUDY_PLAN = "study_plan"
     const val DEDUP = "dedup"
+    const val AI_SETTINGS = "ai_settings"
     // 底部导航顶层目的地
     const val TAB_LIBRARY = "tab_library"
     const val TAB_STUDY = "tab_study"

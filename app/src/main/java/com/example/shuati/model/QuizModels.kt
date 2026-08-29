@@ -24,6 +24,7 @@ data class Question(
     val answer: String? = null,            // 标准答案字符串
     val type: QuestionType = QuestionType.single,
     val explanation: String? = null,
+    val aiExplanation: AiExplanation? = null,   // AI 生成的解析（默认保存，区别于原题 explanation）
     val tags: List<String> = emptyList(),
     val orderFree: Boolean = false,         // 浏览模式下是否打乱顺序（等价 orderFree）
     // 数据质量标记
@@ -39,6 +40,7 @@ data class QuestionBank(
     val id: String,
     val name: String,
     val questions: List<Question> = emptyList(),
+    val aiHint: String? = null,                // 题库级默认定向提示（如「注册会计师考试」），AI 解析时带入
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 )
@@ -178,4 +180,30 @@ data class BackupData(
     val questionStats: Map<String, String> = emptyMap(),     // 每题正确率统计 key="bankId::questionId" value="correct,total"
     val wrongAnswers: Map<String, List<String>> = emptyMap(), // 每题错答历史 key="bankId::questionId"
     val settings: AppSettings = AppSettings()
+)
+
+/**
+ * AI 解析结果。由 AiExplainService 生成后写入 Question.aiExplanation 并落盘。
+ * citations 为联网搜索来源（若启用搜索引擎），用于展示「引用出处」。
+ */
+@Serializable
+data class AiExplanation(
+    val text: String,
+    val model: String = "",
+    val provider: String = "",
+    val createdAt: Long = 0L,
+    val hintUsed: String? = null,            // 本次生成使用的定向提示语（空=未用）
+    val citations: List<String> = emptyList(),
+    val promptHash: String = ""              // 题目+提示 的哈希，用于去重/调试
+)
+
+/**
+ * AI 大模型 / 搜索引擎配置。仅存于本地加密 SharedPreferences，不上传任何服务器。
+ */
+data class AiConfig(
+    val llmBaseUrl: String = "",   // OpenAI 兼容端点，如 https://api.openai.com/v1
+    val llmApiKey: String = "",
+    val llmModel: String = "",
+    val searchProvider: String = "",  // "tavily" | "exa" | ""（空=依赖模型内置搜索）
+    val searchApiKey: String = ""
 )

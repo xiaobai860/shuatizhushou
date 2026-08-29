@@ -116,4 +116,12 @@ dependencies {
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+
+    // 密钥本地加密存储（AI 配置 Key）
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // 网络请求（AI 大模型 / 搜索引擎，OpenAI 兼容）
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

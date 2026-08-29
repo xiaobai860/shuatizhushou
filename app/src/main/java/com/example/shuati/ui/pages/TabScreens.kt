@@ -751,6 +751,25 @@ fun MineTabScreen(navController: NavController) {
                 }
             }
 
+            // AI 解析
+            item {
+                Spacer(Modifier.height(4.dp))
+                SectionTitle("AI 解析")
+            }
+            item {
+                Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)) {
+                    ListRow(
+                        icon = { Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp)) },
+                        iconBackground = MaterialTheme.colorScheme.surfaceContainer,
+                        iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        title = "AI 大模型配置",
+                        subtitle = "配置模型与联网搜索，生成题目解析",
+                        trailing = { ChevronTrailing() },
+                        onClick = { navController.navigate(Routes.AI_SETTINGS) }
+                    )
+                }
+            }
+
             // 关于
             item {
                 Spacer(Modifier.height(4.dp))

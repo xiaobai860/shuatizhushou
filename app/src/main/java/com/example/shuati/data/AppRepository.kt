@@ -103,6 +103,22 @@ class AppRepository(private val context: Context) {
         return true
     }
 
+    /** 保存某题的 AI 解析（默认保存，覆盖旧值）。 */
+    fun saveAiExplanation(bankId: String, questionId: String, ai: AiExplanation): Boolean {
+        val bank = getBanks().firstOrNull { it.id == bankId } ?: return false
+        val qs = bank.questions.toMutableList()
+        val qi = qs.indexOfFirst { it.id == questionId }
+        if (qi < 0) return false
+        qs[qi] = qs[qi].copy(aiExplanation = ai)
+        return updateBank(bank.copy(questions = qs))
+    }
+
+    /** 设置题库级 AI 默认提示语（空串则清除）。 */
+    fun saveBankAiHint(bankId: String, hint: String?) {
+        val bank = getBanks().firstOrNull { it.id == bankId } ?: return
+        updateBank(bank.copy(aiHint = hint?.takeIf { it.isNotBlank() }))
+    }
+
     private fun syncBankNameInRecords(bankId: String, newName: String) {
         val wrongs = getWrongRecords().map { if (it.bankId == bankId) it.copy(bankName = newName) else it }
         writeList(WRONGS_KEY, wrongs)

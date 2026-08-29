@@ -79,6 +79,11 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
     var editingQuestion by remember { mutableStateOf<Question?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
 
+    // 题库设置（名称 + AI 默认提示语）
+    var showBankSettings by remember { mutableStateOf(false) }
+    var bankNameDraft by remember { mutableStateOf("") }
+    var bankHintDraft by remember { mutableStateOf("") }
+
     // 删除确认
     var showDeleteConfirm by remember { mutableStateOf<Question?>(null) }
 
@@ -115,6 +120,13 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
                 onBack = { navController.popBackStack() },
                 subtitle = "${allQuestions.size} 题 · 更新于 ${java.text.SimpleDateFormat("MM-dd", java.util.Locale.getDefault()).format(java.util.Date(currentBank.updatedAt))}",
                 actions = {
+                    IconButton(onClick = {
+                        bankNameDraft = currentBank.name
+                        bankHintDraft = currentBank.aiHint ?: ""
+                        showBankSettings = true
+                    }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "题库设置")
+                    }
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "添加题目")
                     }
@@ -333,6 +345,46 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = null }) { Text("取消") }
             }
+        )
+    }
+
+    if (showBankSettings) {
+        AlertDialog(
+            onDismissRequest = { showBankSettings = false },
+            title = { Text("题库设置") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = bankNameDraft, onValueChange = { bankNameDraft = it },
+                        label = { Text("题库名称") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = bankHintDraft, onValueChange = { bankHintDraft = it },
+                        label = { Text("AI 默认提示语（可选）") },
+                        placeholder = { Text("如：注册会计师考试") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "该提示会在「AI 解析」时自动带入，让解析更贴合本题库领域。",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        repo.updateBank(
+                            currentBank.copy(
+                                name = bankNameDraft.trim().ifBlank { currentBank.name },
+                                aiHint = bankHintDraft.trim().takeIf { it.isNotBlank() }
+                            )
+                        )
+                        showBankSettings = false
+                        snackbarHostState.showSnackbar("已保存")
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { showBankSettings = false }) { Text("取消") } }
         )
     }
 }
