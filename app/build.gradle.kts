@@ -107,6 +107,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Excel / XLSX parsing (Apache POI)
+    // poi:5.3.0 同时提供 HSSF（.xls 老格式），无需额外依赖
     implementation("org.apache.poi:poi-ooxml:5.3.0")
     implementation("org.apache.poi:poi:5.3.0")
     implementation("org.apache.xmlbeans:xmlbeans:5.2.0")

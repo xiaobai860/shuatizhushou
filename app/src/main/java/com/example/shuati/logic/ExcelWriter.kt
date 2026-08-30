@@ -10,15 +10,17 @@ import java.io.OutputStream
 /**
  * 题库导出为 Excel（.xlsx）。
  *
- * 列头与 ExcelParser.parseByHeader 完全对齐，因此生成的文件可被导入流程原样解析，
+ * 列头与 QuestionTableParser.parseByHeader 完全对齐，因此生成的文件可被导入流程原样解析，
  * 实现「备份 → 还原」的 Excel 往返一致：
- *   题目ID | 题型(中文) | 题干 | 选项A..N | 正确答案 | 解析 | AI解析 | 标签 | 不限顺序
+ *   题目ID | 题型(中文) | 题干 | 选项A..N | 正确答案 | 解析 | AI解析 | 标签 | 难度 | 不限顺序
  *
  * - 题型以中文写出（单选/多选/判断/填空/简答）；多选答案以逗号分隔；标签以「|」分隔。
  * - 选项列数量动态：默认 4 列（A-D）；某题库选项超过 4 个时自动扩展到实际最大数
  *   （如 6 个选项 → A-F），导入侧亦能自动识别任意「选项X」列。
  * - 新增「AI解析」列：写出 Question.aiExplanation.text，导入时可原样回填，
  *   解决「AI 解析后导出题库不显示 AI 解析内容」的问题。
+ * - 新增「难度」列：写出中文（简单/中等/困难），unset 留空；导入时经
+ *   QuestionTableParser.parseDifficulty 还原为枚举。
  */
 object ExcelWriter {
 
@@ -32,6 +34,14 @@ object ExcelWriter {
         QuestionType.judge -> "判断"
         QuestionType.fill -> "填空"
         QuestionType.essay -> "简答"
+    }
+
+    /** 难度 → 中文标签（unset 输出空串，保持表格整洁）。 */
+    fun difficultyLabel(d: com.example.shuati.model.QuestionDifficulty): String = when (d) {
+        com.example.shuati.model.QuestionDifficulty.easy -> "简单"
+        com.example.shuati.model.QuestionDifficulty.normal -> "中等"
+        com.example.shuati.model.QuestionDifficulty.hard -> "困难"
+        com.example.shuati.model.QuestionDifficulty.unset -> ""
     }
 
     /**
@@ -51,6 +61,7 @@ object ExcelWriter {
         header.add("解析")
         header.add("AI解析")
         header.add("标签")
+        header.add("难度")
         header.add("不限顺序")
         return header
     }
@@ -70,7 +81,8 @@ object ExcelWriter {
         val colExplanation = colAnswer + 1
         val colAi = colExplanation + 1
         val colTags = colAi + 1
-        val colOrderFree = colTags + 1
+        val colDifficulty = colTags + 1
+        val colOrderFree = colDifficulty + 1
 
         bank.questions.forEachIndexed { idx, q ->
             val row = sheet.createRow(idx + 1)
@@ -87,6 +99,8 @@ object ExcelWriter {
             q.explanation?.let { row.createCell(colExplanation).setCellValue(it) }
             q.aiExplanation?.text?.let { row.createCell(colAi).setCellValue(it) }
             if (q.tags.isNotEmpty()) row.createCell(colTags).setCellValue(q.tags.joinToString("|"))
+            difficultyLabel(q.difficulty).takeIf { it.isNotEmpty() }
+                ?.let { row.createCell(colDifficulty).setCellValue(it) }
             row.createCell(colOrderFree).setCellValue(if (q.orderFree) "是" else "否")
         }
         return wb
@@ -127,12 +141,12 @@ object ExcelWriter {
         val hrow = sheet.createRow(0)
         header.forEachIndexed { i, name -> hrow.createCell(i).setCellValue(name) }
 
-        // 列顺序（与 headerFor(4) 一致，共 12 列）：
-        // 0题目ID 1题型 2题干 3选项A 4选项B 5选项C 6选项D 7正确答案 8解析 9AI解析 10标签 11不限顺序
+        // 列顺序（与 headerFor(4) 一致，共 13 列）：
+        // 0题目ID 1题型 2题干 3选项A 4选项B 5选项C 6选项D 7正确答案 8解析 9AI解析 10标签 11难度 12不限顺序
         val example = listOf(
-            listOf("q1", "单选", "下列哪一项是正确的？", "一", "二", "三", "四", "A", "解析示例", "", "标签1|标签2", "否"),
-            listOf("q2", "判断", "判断题示例：地球是圆的。", "", "", "", "", "正确", "解析示例", "", "", "否"),
-            listOf("q3", "填空", "中国的首都是____。", "", "", "", "", "北京", "", "", "", "否")
+            listOf("q1", "单选", "下列哪一项是正确的？", "一", "二", "三", "四", "A", "解析示例", "", "标签1|标签2", "简单", "否"),
+            listOf("q2", "判断", "判断题示例：地球是圆的。", "", "", "", "", "正确", "解析示例", "", "", "中等", "否"),
+            listOf("q3", "填空", "中国的首都是____。", "", "", "", "", "北京", "", "", "", "困难", "否")
         )
         example.forEachIndexed { r, cols ->
             val row = sheet.createRow(r + 1)

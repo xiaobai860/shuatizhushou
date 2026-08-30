@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -102,10 +103,18 @@ private fun SoftBottomBar(
  * 全局导航图。顶部四页挂底部导航，其余详情页全屏显示。
  */
 @Composable
-fun AppNavHost() {
+fun AppNavHost(sharedImport: SharedImportIntent? = null) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // 系统分享面板进入：携带分享文件直达导入页（解析由 ImportScreen 自动进行）
+    LaunchedEffect(sharedImport) {
+        if (sharedImport != null) {
+            SharedImportIntent.holder.value = sharedImport
+            navController.navigate(Routes.IMPORT)
+        }
+    }
     // 应用由 MainActivity.setContent 提供组合上下文，context 必为 Activity
     val activity = LocalContext.current as Activity
 

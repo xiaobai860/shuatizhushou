@@ -27,8 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.shuati.logic.ExcelParser
 import com.example.shuati.logic.ExcelWriter
+import com.example.shuati.logic.QuestionFileImporter
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
@@ -61,6 +61,72 @@ fun ImportScreen(navController: NavController) {
     var skipped by remember { mutableStateOf(0) }
     var typeCounts by remember { mutableStateOf(emptyList<Pair<String, Int>>()) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var formatLabel by remember { mutableStateOf("") }
+    var charsetLabel by remember { mutableStateOf<String?>(null) }
+    /** 分享导入时为多个 Uri；普通选择时为单个 */
+    var sharedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+
+    /** 统一的解析流程：支持单文件与多文件（分享导入） */
+    fun analyze(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        status = "parsing"
+        sharedUris = uris
+        scope.launch {
+            try {
+                val results = uris.map { QuestionFileImporter.importUri(context, it, "导入题库") }
+                val bank = if (results.size == 1) {
+                    results[0].bank
+                } else {
+                    QuestionFileImporter.mergeBanks(results.map { it.bank }, "导入题库")
+                }
+                val names = uris.map { QuestionFileImporter.displayName(context, it) ?: "未知文件" }
+                fileName = names.joinToString("、")
+                imported = bank.questions.size
+                totalRows = results.sumOf { it.totalRows }
+                skipped = bank.questions.count { it.incomplete || it.idProblem }
+                parsedName = bank.name
+                formatLabel = results.map { it.format.label }.distinct().joinToString("、")
+                charsetLabel = results.mapNotNull { it.charsetLabel }.distinct().joinToString("、")
+                    .takeIf { it.isNotEmpty() }
+                typeCounts = bank.questions
+                    .groupingBy { it.type }
+                    .eachCount()
+                    .map { (t, c) -> com.example.shuati.ui.components.typeLabel(t) to c }
+                    .sortedByDescending { it.second }
+                bankName = repo.generateUniqueBankName(
+                    if (uris.size == 1) stripExt(names[0]) else "多文件导入${uris.size}个"
+                )
+                status = "done"
+            } catch (e: QuestionFileImporter.UnsupportedFormatException) {
+                message = e.message ?: "不支持的文件格式"
+                status = "error"
+            } catch (e: SecurityException) {
+                // 分享方未授予读权限（如直接给出 file:// 路径），无法读取
+                message = "无法读取该文件：分享方未授予访问权限。请改用应用内的「选择题库文件」导入，或在文件管理器中分享。"
+                status = "error"
+            } catch (e: Exception) {
+                message = when {
+                    e.message?.contains("EACCES") == true ->
+                        "无法读取该文件：没有访问权限。请改用应用内的「选择题库文件」导入。"
+                    e.message?.contains("Permission denied") == true ->
+                        "无法读取该文件：没有访问权限。请改用应用内的「选择题库文件」导入。"
+                    else -> "解析失败：${e.message}"
+                }
+                status = "error"
+            }
+        }
+    }
+
+    // 系统分享面板进入：自动解析传入的文件。
+    // 以 holder 为 key 观察状态变化——应用已在前台时再次收到分享（onNewIntent），
+    // 若不观察 holder，LaunchedEffect(Unit) 只会在首次进入执行一次，导致后续分享被忽略。
+    val shared = SharedImportIntent.holder.value
+    LaunchedEffect(shared) {
+        if (shared != null) {
+            SharedImportIntent.holder.value = null   // 消费掉，避免重复触发
+            analyze(shared.uris)
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -68,33 +134,7 @@ fun ImportScreen(navController: NavController) {
         val uri = result.data?.data
         if (uri != null) {
             selectedUri = uri
-            status = "parsing"
-            scope.launch {
-                try {
-                    val res = ExcelParser.parseUri(context, uri, parsedName.ifEmpty { "导入题库" })
-                    fileName = (context.contentResolver.query(uri, null, null, null, null)
-                        ?.use { cursor ->
-                            cursor.moveToFirst()
-                            cursor.getString(cursor.getColumnIndexOrThrow(android.provider.OpenableColumns.DISPLAY_NAME))
-                        } ?: "unknown.xlsx")
-                    imported = res.imported
-                    totalRows = res.totalRows
-                    skipped = res.skipped
-                    parsedName = res.bank.name
-                    typeCounts = res.bank.questions
-                        .groupingBy { it.type }
-                        .eachCount()
-                        .map { (t, c) ->
-                            com.example.shuati.ui.components.typeLabel(t) to c
-                        }
-                        .sortedByDescending { it.second }
-                    bankName = repo.generateUniqueBankName(stripExt(fileName))
-                    status = "done"
-                } catch (e: Exception) {
-                    message = "解析失败：${e.message}"
-                    status = "error"
-                }
-            }
+            analyze(listOf(uri))
         }
     }
 
@@ -142,11 +182,24 @@ fun ImportScreen(navController: NavController) {
                                 !(repo.isBankNameTaken(bankName.trim()) && bankName.trim() != parsedName),
                             onClick = {
                                 scope.launch {
-                                    val res = ExcelParser.parseUri(context, selectedUri!!, bankName.trim())
-                                    val r = repo.addBank(res.bank)
+                                    val uris = sharedUris.ifEmpty {
+                                        listOfNotNull(selectedUri)
+                                    }
+                                    val name = bankName.trim()
+                                    val results = uris.map {
+                                        QuestionFileImporter.importUri(context, it, name)
+                                    }
+                                    val bank = if (results.size == 1) {
+                                        results[0].bank.copy(name = name)
+                                    } else {
+                                        QuestionFileImporter.mergeBanks(
+                                            results.map { it.bank }, name
+                                        )
+                                    }
+                                    val r = repo.addBank(bank)
                                     if (r.success) {
                                         navController.popBackStack()
-                                        navController.navigate("${Routes.EDIT_BANK}?bankId=${res.bank.id}")
+                                        navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}")
                                     } else {
                                         message = r.message ?: "导入失败"
                                         status = "error"
@@ -187,7 +240,7 @@ fun ImportScreen(navController: NavController) {
                     Column(Modifier.weight(1f)) {
                         Text("下载 Excel 模板", fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface)
-                        Text("B 题干 · C 题型 · D 选项 · E 答案 · F 标签 · G 解析", fontSize = 11.sp,
+                        Text("题干 · 题型 · 选项 · 答案 · 解析 · 标签 · 难度", fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     TextButton(onClick = { templateLauncher.launch("题库导入模板.xlsx") }) {
@@ -205,11 +258,8 @@ fun ImportScreen(navController: NavController) {
                 onClick = {
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            "application/vnd.ms-excel"
-                        ))
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, QuestionFileImporter.SUPPORTED_MIME_TYPES)
                     }
                     launcher.launch(intent)
                 }
@@ -227,12 +277,12 @@ fun ImportScreen(navController: NavController) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            fileName.ifEmpty { "选择 Excel 文件" },
+                            fileName.ifEmpty { "选择题库文件" },
                             fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface, maxLines = 1
+                            color = MaterialTheme.colorScheme.onSurface, maxLines = 2
                         )
                         Text(
-                            if (fileName.isEmpty()) "支持 .xlsx / .xls" else "来自系统文件管理器",
+                            if (fileName.isEmpty()) "支持 .xlsx / .xls / .csv" else "来自系统文件管理器",
                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -255,7 +305,7 @@ fun ImportScreen(navController: NavController) {
 
             if (status == "done") {
                 // 解析预览
-                SectionTitle("解析预览", count = "共 $totalRows 行")
+                SectionTitle("解析预览", count = formatLabel.ifEmpty { "共 $totalRows 行" })
                 CardBox {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         StatTile("$totalRows", "检测到题目", Modifier.weight(1f))
@@ -284,6 +334,12 @@ fun ImportScreen(navController: NavController) {
                                     color = MaterialTheme.semantic.onWarningContainer.copy(alpha = 0.85f))
                             }
                         }
+                    }
+                    // 编码提示（仅 CSV）
+                    charsetLabel?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text("文件编码：$it", fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     // 题型分布
                     if (typeCounts.isNotEmpty()) {

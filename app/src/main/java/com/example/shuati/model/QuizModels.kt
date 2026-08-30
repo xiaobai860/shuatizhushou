@@ -12,6 +12,18 @@ enum class QuestionType {
 }
 
 /**
+ * 题目难度。unset 表示未设置（兼容历史数据）。
+ * 序列化用枚举名（easy/normal/hard/unset），Excel 中写中文（简单/中等/困难）。
+ */
+@Serializable
+enum class QuestionDifficulty {
+    unset,      // 未设置（默认，兼容老数据）
+    easy,       // 简单
+    normal,     // 中等
+    hard        // 困难
+}
+
+/**
  * 单道题目。等价 types/quiz.ts Question
  * 注意：answer 在 JSON 中统一以「字符串」形态存储（与小程序保持一致），
  * 多选用逗号分隔（如 "A,B"），判分时在逻辑层拆分。
@@ -25,7 +37,8 @@ data class Question(
     val type: QuestionType = QuestionType.single,
     val explanation: String? = null,
     val aiExplanation: AiExplanation? = null,   // AI 生成的解析（默认保存，区别于原题 explanation）
-    val tags: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),  // 标签（如行业来源、知识点分类）
+    val difficulty: QuestionDifficulty = QuestionDifficulty.unset,  // 难度
     val orderFree: Boolean = false,         // 浏览模式下是否打乱顺序（等价 orderFree）
     // 数据质量标记
     val incomplete: Boolean = false,        // 选项/答案为空 → 内容不完整

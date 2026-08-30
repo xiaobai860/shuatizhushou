@@ -98,10 +98,29 @@
 - **编辑题库**：题目增删改、题型切换、选项动态增删（A–J，上限 10）、答案/解析/标签编辑；题库级「AI 默认提示语」
 - **疑似错题 Tab**：识别缺选项/答案异常，一键修正缺失/重复 ID
 
-### Excel 导入 / 导出（ImportScreen / ExcelParser / ExcelWriter）
-- **模板**：题型中文化、选项默认 A–D（超 4 自动扩展 E/F…）、「AI解析」列
-- **导入**：动态扫描「选项X」表头（任意字母）、中英文题型兼容、「AI解析」列回填
-- **导出**：题库导出为 xlsx，含「AI解析」列；选项列按最大选项数动态扩展
+### 题库导入 / 导出 ⭐（含系统分享入口）
+- **支持格式**：`.xlsx`、`.xls`（Excel 97-2003）、`.csv`（UTF-8 / GBK 自动探测）
+  - 三种格式共用同一解析内核 `QuestionTableParser`，行为完全一致
+  - CSV 编码探测：先按 UTF-8，出现替换字符则回退 GBK（国内 Excel 另存 CSV 默认为 GBK）
+- **系统分享面板入口**：在其他 App（微信/QQ/文件管理器/网盘）点分享 → 选择「刷题」→ 自动进入导入页并解析
+  - 支持 `ACTION_SEND`（单文件）与 `ACTION_SEND_MULTIPLE`（多文件合并为一个题库）
+  - 每种 MIME 单独声明 intent-filter（同一 filter 内多个 mimeType 会被合并导致 CSV 丢失）
+  - 应用已在前台时再次分享也能响应（`onNewIntent` → 观察 holder 状态）
+- **字段结构**（与模板 / 导出三方对齐）：
+  `题目ID | 题型 | 题干 | 选项A…Z | 正确答案 | 解析 | AI解析 | 标签 | 难度 | 不限顺序`
+  - 题型：单选/多选/判断/填空/简答（中英文均可）；不填则按选项数与答案自动推断
+  - 选项列动态识别「选项X」（任意字母），最多 26 个
+  - **标签**：承载行业来源 / 知识点分类，多值用 `,，、|｜` 分隔
+  - **难度**：简单 / 中等 / 困难（或 easy/normal/hard、1/2/3）；留空为「未设置」，兼容历史数据
+  - 判断类答案自动规整为「正确/错误」；填空支持 `|` 分隔多空 + 不限顺序
+- **校验规则**：
+  - 题干/答案缺失、选项不足 2 个 → 标记「疑似错题」，导入后可在编辑页修正
+  - ID 缺失自动生成、重复自动加后缀（并标记）
+  - 表格形态无法识别（无表头且解析不出任何题目）→ 明确报错，不静默导入空题库
+  - 分享方未授予读权限 → 友好中文提示，不暴露原始路径错误
+- **导入流程**（含确认步骤，避免跨应用误操作）：
+  `分享/选择文件 → 预览（文件名·格式·编码·题数·异常数·题型分布）→ 命名题库 → 导入`
+- **导出**：题库导出为 xlsx，含「AI解析」与「难度」列；选项列按最大选项数动态扩展
 
 ### 错题本（WrongsScreen）
 - 按答错次数降序；失效记录（关联题库已删）单独展示、一键清除；全部/按筛选清空；重做进入错题练习
@@ -222,9 +241,15 @@ adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 测试
 
-- `app/src/test`（JVM 单测，JUnit4）：`AiExplainServiceTest`（12 例）、`ExcelRoundTripTest`（2 例），共 **14 例全绿**
+- `app/src/test`（JVM 单测，JUnit4），共 **27 例全绿**：
+
+| 测试类 | 用例数 | 覆盖范围 |
+|---|---|---|
+| `AiExplainServiceTest` | 12 | `modelHasBuiltinSearch` / `providerSupportsPromptCache` allowlist、`buildPrompt` 注入、SSE 累积解析、`bochaResultsToSearch` 截断 |
+| `ExcelRoundTripTest` | 2 | Excel 多选项动态列 + AI 解析往返 + 模板对齐 |
+| `QuestionFileImporterTest` | 13 | xlsx/xls/csv 三格式字段与题型推断一致性、CSV 的 GBK/UTF-8 编码探测、引号内逗号与换行、难度列解析、多文件 ID 冲突合并、非法输入与无法识别表格的报错 |
+
 - 跑法：`:app:testDebugUnitTest --no-daemon`（不含 assemble，不触发 buildNumber 自增）
-- 覆盖：`modelHasBuiltinSearch` / `providerSupportsPromptCache` allowlist、`buildPrompt` 注入、SSE 累积解析、`bochaResultsToSearch` 截断、Excel 多选项动态列 + AI 解析往返 + 模板对齐
 
 ## 编译警告
 
