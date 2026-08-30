@@ -39,7 +39,7 @@ android {
             buildNumberFile.outputStream().use { buildProps.store(it, "Auto-incremented build number (versionCode)") }
         }
         versionCode = buildNumber
-        versionName = "2026083001"
+        versionName = "2026083009"
         multiDexEnabled = true
         vectorDrawables {
             useSupportLibrary = true

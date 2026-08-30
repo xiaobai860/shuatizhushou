@@ -625,7 +625,7 @@ fun QuestionEditDialog(
     }
 
     val qType = QuestionType.valueOf(qTypeStr)
-    val letters = listOf('A', 'B', 'C', 'D', 'E', 'F', 'G')
+    val letters = listOf('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J')
 
     // 填空答案的多空数量（| 分隔）
     val fillParts = (qAnswer ?: "").split(Regex("[|｜]")).map { it.trim() }.filter { it.isNotEmpty() }
@@ -699,7 +699,7 @@ fun QuestionEditDialog(
 
                 // 选项（动态增删）
                 if (qType == QuestionType.single || qType == QuestionType.multiple) {
-                    Text("选项（A-G，最多7个）", fontSize = 13.sp, color = Color.Gray)
+                    Text("选项（A-J，最多10个，可动态增减）", fontSize = 13.sp, color = Color.Gray)
                     optionTexts.forEachIndexed { index, text ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -727,7 +727,7 @@ fun QuestionEditDialog(
                             }
                         }
                     }
-                    if (optionTexts.size < 7) {
+                    if (optionTexts.size < 10) {
                         TextButton(
                             onClick = { optionTexts.add("") },
                             modifier = Modifier.align(Alignment.End)

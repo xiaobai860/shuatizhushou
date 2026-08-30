@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -42,6 +43,7 @@ import com.example.shuati.logic.Scoring
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.model.QuestionType
+import com.example.shuati.model.AiProviderConfig
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.Badge
 import com.example.shuati.ui.components.HeroCard
@@ -102,10 +104,14 @@ fun QuizScreen(
     // 流式进度状态
     var aiThinking by remember { mutableStateOf<String?>(null) }
     var aiFlow by remember { mutableStateOf("") }
-    // 模型思考过程（仅展示，不落盘，生成结束后消失）；空串表示「无思考内容」
-    var aiReasoning by remember { mutableStateOf("") }
     var aiJob by remember { mutableStateOf<Job?>(null) }
+    // 代际计数器：每次发起新请求 +1，用于区分「当前任务」与「已被取消的旧任务」。
+    // 连续点击重新生成时，旧任务的 finally 可能晚于新任务执行，若无守卫会把新任务的流式输出清空。
+    var aiGen by remember { mutableStateOf(0) }
     var aiRegenerating by remember { mutableStateOf(false) }
+    // 多供应商模型选择器状态（默认上次使用）
+    var aiProviders by remember { mutableStateOf(AiConfigStore.loadAll(context).providers) }
+    var aiSelProvider by remember { mutableStateOf(AiConfigStore.loadAll(context).selectedProviderId) }
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }
@@ -132,10 +138,14 @@ fun QuizScreen(
     var skipIncomplete by remember { mutableStateOf(true) }
     // 模式选择页：当前选中的模式（卡片高亮），点「开始刷题」才真正进入
     var selectedMode by remember { mutableStateOf("sequence") }
+    // 题型筛选（按题型刷题，可选；null = 全部）
+    var filterType by remember { mutableStateOf<QuestionType?>(null) }
+    // 选项乱序（仅选择类题型生效：每题选项重排，判分按正确答案，不影响对错）
+    var shuffleOptions by remember { mutableStateOf(false) }
 
     // 计算本次作答序列（含真实 bankId）
-    val queue = remember(bankId, selMode, source, planId, filterLocal, skipIncomplete, specifiedQuestions) {
-        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions, skipIncomplete)
+    val queue = remember(bankId, selMode, source, planId, filterLocal, skipIncomplete, specifiedQuestions, filterType) {
+        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions, skipIncomplete, filterType)
     }
 
     var index by remember { mutableStateOf(0) }
@@ -147,7 +157,6 @@ fun QuizScreen(
         aiJob?.cancel()
         aiThinking = null
         aiFlow = ""
-        aiReasoning = ""
         aiError = null
         aiRegenerating = false
         aiBusy = false
@@ -321,6 +330,29 @@ fun QuizScreen(
                     }
                 }
 
+                // 题型筛选（可选）：按题型刷题；与「随机」组合即「同题型随机顺序」
+                SectionTitle("题型筛选（可选）")
+                val typeFilterChips = listOf(
+                    null to "全部",
+                    QuestionType.single to "单选",
+                    QuestionType.multiple to "多选",
+                    QuestionType.judge to "判断",
+                    QuestionType.fill to "填空",
+                    QuestionType.essay to "简答"
+                )
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    typeFilterChips.forEach { (t, label) ->
+                        FilterChip(
+                            selected = filterType == t,
+                            onClick = { filterType = t },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+
                 SectionTitle("练习设置")
 
                 // 跳过残缺题目
@@ -355,19 +387,19 @@ fun QuizScreen(
                     }
                     ShuatiSwitch(checked = filterLocal, onCheckedChange = { filterLocal = it })
                 }
-                // 填空不限答案顺序
+                // 选项乱序（仅选择类题型：每题选项重排显示，判分按正确答案，不影响对错）
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surface)
-                        .toggleable(value = true, onValueChange = {})
+                        .toggleable(value = shuffleOptions, onValueChange = { shuffleOptions = it })
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("填空不限答案顺序", fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                        Text("答填空多空时按任意顺序匹配", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("选项乱序", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("打乱每题选项顺序，检验是否真掌握", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    ShuatiSwitch(checked = true, onCheckedChange = {})
+                    ShuatiSwitch(checked = shuffleOptions, onCheckedChange = { shuffleOptions = it })
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -434,10 +466,10 @@ fun QuizScreen(
         val q = current.q
         val bid = current.bankId
         aiJob?.cancel()              // 取消上一次未完成的请求
+        val gen = ++aiGen            // 代际：本次请求唯一标识，旧任务 finally 不再能清空本次输出
         aiBusy = true
         aiError = null
         aiFlow = ""
-        aiReasoning = ""
         // 是否「重新生成」：已有解析则保留旧结果并展示重生成动画
         val existing = aiMap[q.id] ?: q.aiExplanation
         aiRegenerating = existing != null
@@ -447,44 +479,49 @@ fun QuizScreen(
         aiJob = coroutineScope.launch {
             try {
                 val cfg = AiConfigStore.load(context)
+                val reusePrev = AiConfigStore.loadAll(context).reusePrevOnRegen
                 val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
                 val eff = hint.ifBlank { bankHint }
-                AiExplainService.explainStream(cfg, q, eff) { ev ->
+                // 仅当用户开启「重生成携带上次解析」开关时才注入上次答案（否则走全新生成，含重新检索）。
+                val prevAnswer = if (reusePrev) existing?.text else null
+                AiExplainService.explainStream(cfg, q, eff, prevAnswer = prevAnswer) { ev ->
                     when (ev) {
                         is AiStreamEvent.Thinking -> if (!aiRegenerating) aiThinking = ev.msg
                         is AiStreamEvent.Generating -> {
                             aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
                             aiFlow = ""
-                            aiReasoning = ""
                         }
-                        // Delta 与 Reasoning 传的都是「全量快照」，整体替换而非 append
+                        // Delta 传的是「截至当前的全量快照」，整体替换而非 append，呈现逐字累积的打字机效果
                         is AiStreamEvent.Delta -> aiFlow = ev.text
-                        // 只有真的收到思考内容才会来这个事件；普通模型永远收不到
-                        is AiStreamEvent.Reasoning -> aiReasoning = ev.text
                         is AiStreamEvent.Done -> {
-                            aiRegenerating = false
-                            repo.saveAiExplanation(bid, q.id, ev.ai)
-                            aiMap = aiMap + (q.id to ev.ai)
-                            aiFlow = ""
-                            aiReasoning = ""
+                            if (gen == aiGen) {
+                                aiRegenerating = false
+                                repo.saveAiExplanation(bid, q.id, ev.ai)
+                                aiMap = aiMap + (q.id to ev.ai)
+                                aiFlow = ""
+                            }
                         }
                         is AiStreamEvent.Error -> {
-                            aiError = ev.msg
-                            aiFlow = ""
-                            aiReasoning = ""
+                            if (gen == aiGen) {
+                                aiError = ev.msg
+                                aiFlow = ""
+                            }
                         }
                     }
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                aiError = e.message ?: "生成失败"
+                if (gen == aiGen) aiError = e.message ?: "生成失败"
             } finally {
-                aiThinking = null
-                aiBusy = false
-                aiRegenerating = false
-                // 出错 / 取消 / 结束时统一清掉流式残留，避免串到下一题
-                aiFlow = ""
-                aiReasoning = ""
+                // 仅当本任务仍是「最新一次请求」时才清理状态；
+                // 否则是已被取消的旧任务，其 finally 不能清空新任务正在展示的流式输出。
+                if (gen == aiGen) {
+                    aiThinking = null
+                    aiBusy = false
+                    aiRegenerating = false
+                    // 流式结束：切换为已保存结果（aiMap 中的完整文本），清理临时流式残留
+                    aiFlow = ""
+                }
             }
         }
     }
@@ -730,10 +767,16 @@ fun QuizScreen(
                 when (current.q.type) {
                     QuestionType.single, QuestionType.multiple -> {
                         val chosen = (selected as? Set<*>)?.filterIsInstance<Int>()?.toSet() ?: emptySet()
-                        current.q.options?.forEachIndexed { i, opt ->
-                            val letter = ('A' + i).toString()
-                            val isSel = chosen.contains(i)
-                            val isCorrectOption = Scoring.parseAnswerIndices(current.q.answer, current.q.options).contains(i)
+                        val opts = current.q.options ?: emptyList()
+                        // 选项乱序：每题固定一个重排映射（按题 id 记忆，切题重建），判分按原始索引
+                        val displayOrder = remember(current.q.id, shuffleOptions) {
+                            if (shuffleOptions && opts.size > 1) opts.indices.shuffled() else opts.indices.toList()
+                        }
+                        displayOrder.forEachIndexed { pos, origIdx ->
+                            val opt = opts.getOrNull(origIdx) ?: return@forEachIndexed
+                            val letter = ('A' + pos).toString()
+                            val isSel = chosen.contains(origIdx)
+                            val isCorrectOption = Scoring.parseAnswerIndices(current.q.answer, current.q.options).contains(origIdx)
                             val containerColor = when {
                                 !submitted -> if (isSel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                                 isSel && isCorrectOption -> MaterialTheme.colorScheme.primaryContainer
@@ -744,8 +787,8 @@ fun QuizScreen(
                             Surface(
                                 color = containerColor, shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth().clickable(enabled = !submitted) {
-                                    selected = if (current.q.type == QuestionType.single) setOf(i)
-                                    else (chosen + i).toSet()
+                                    selected = if (current.q.type == QuestionType.single) setOf(origIdx)
+                                    else (chosen + origIdx).toSet()
                                 }
                             ) {
                                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -851,8 +894,17 @@ fun QuizScreen(
                         aiError = aiError,
                         aiThinking = aiThinking,
                         aiStreamingText = if (aiFlow.isNotEmpty()) aiFlow else null,
-                        aiReasoningText = if (aiReasoning.isNotEmpty()) aiReasoning else null,
                         aiRegenerating = aiRegenerating,
+                        providers = aiProviders,
+                        selectedProviderId = aiSelProvider,
+                        selectedModel = aiProviders.firstOrNull { it.id == aiSelProvider }?.selectedModel
+                            ?: aiProviders.firstOrNull()?.selectedModel ?: "",
+                        appSearchEnabled = AiConfigStore.searchEnabled(AiConfigStore.activeConfig(context)),
+                        onModelPicked = { pid, m ->
+                            aiProviders = aiProviders.map { if (it.id == pid) it.copy(selectedModel = m) else it }
+                            aiSelProvider = pid
+                            AiConfigStore.saveProviders(context, aiProviders, pid)
+                        },
                         onAiClick = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
                             requestAi(aiHintDraft)
@@ -1102,9 +1154,13 @@ private fun AnswerPanel(
     aiError: String? = null,
     aiThinking: String? = null,
     aiStreamingText: String? = null,
-    /** 模型思考过程（仅展示，不落盘）。为 null / 空串时不渲染思考区，普通模型界面保持原样。 */
-    aiReasoningText: String? = null,
     aiRegenerating: Boolean = false,
+    // 多供应商模型选择器
+    providers: List<AiProviderConfig> = emptyList(),
+    selectedProviderId: String = "",
+    selectedModel: String = "",
+    appSearchEnabled: Boolean = false,
+    onModelPicked: (providerId: String, model: String) -> Unit = { _, _ -> },
     onAiClick: () -> Unit = {},
     onRegenerate: () -> Unit = {}
 ) {
@@ -1220,6 +1276,62 @@ private fun AnswerPanel(
             }
         }
 
+        // ── 模型选择器（切换供应商/模型，默认上次使用） ──
+        if (providers.isNotEmpty()) {
+            val entries = providers.flatMap { p -> p.models.map { m -> p to m } }
+            if (entries.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                var modelExpanded by remember { mutableStateOf(false) }
+                val curLabel = run {
+                    val p = providers.firstOrNull { it.id == selectedProviderId }
+                    val m = selectedModel.ifBlank { p?.selectedModel ?: "" }
+                    if (p != null && m.isNotBlank()) "${p.name} · $m" else "选择解析模型"
+                }
+                ExposedDropdownMenuBox(
+                    expanded = modelExpanded, onExpandedChange = { modelExpanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = curLabel, onValueChange = {}, readOnly = true,
+                        label = { Text("解析模型") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
+                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                        enabled = !aiBusy
+                    )
+                    ExposedDropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
+                        entries.forEach { (p, m) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${p.name} · $m", fontSize = 13.sp)
+                                        Spacer(Modifier.width(6.dp))
+                                        if (appSearchEnabled || AiExplainService.modelHasBuiltinSearch(m)) {
+                                            AssistChip(
+                                                onClick = { }, label = { Text("联网", fontSize = 10.sp) },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                                ),
+                                                modifier = Modifier.height(22.dp)
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = { onModelPicked(p.id, m); modelExpanded = false }
+                            )
+                        }
+                    }
+                }
+                if (selectedModel.isNotBlank() && (appSearchEnabled || AiExplainService.modelHasBuiltinSearch(selectedModel))) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("✓ 该模型具备联网搜索能力", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.tertiary)
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Text("尚未拉取到模型：请在「AI 大模型配置」中添加供应商并拉取模型", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
         // ── AI 解析（大模型生成，区别于原题 explanation，默认已落盘保存） ──
         val ai = aiExplanation
         when {
@@ -1247,14 +1359,8 @@ private fun AnswerPanel(
                 }
             }
             // 流式逐字生成中（首生成与重新生成共用实时卡）
-            // 思考内容（reasoning）不再单独命中本分支：首生成时思考在下方进度卡内就地生长，
-            // 重新生成时思考在重新生成卡内就地生长；本分支只负责「答案已开始生成」后的实时卡。
             aiStreamingText != null -> {
-                val reasonText = aiReasoningText
                 val answerText = aiStreamingText
-                // 普通模型（无思考区）沿用改动前的 6dp，保证该路径零变化；
-                // 有思考区时，正文与思考区之间留 8dp 做视觉分隔
-                val answerTopGap = if (reasonText.isNullOrBlank()) 6.dp else 8.dp
                 Spacer(Modifier.height(10.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1267,13 +1373,9 @@ private fun AnswerPanel(
                             Spacer(Modifier.width(6.dp))
                             Text(if (aiRegenerating) "AI 解析 · 重新生成中" else "AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
                         }
-                        if (reasonText != null && reasonText.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            // 答案还没出来时，光标跟在思考内容末尾
-                            AiThinkingBlock(text = reasonText, caret = answerText.isNullOrBlank())
-                        }
                         if (answerText != null && answerText.isNotBlank()) {
-                            Spacer(Modifier.height(answerTopGap))
+                            Spacer(Modifier.height(6.dp))
+                            // 逐字符流式渲染：快照整体替换，光标体现解析进度
                             Text(answerText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
                         }
                         Spacer(Modifier.height(8.dp))
@@ -1281,9 +1383,7 @@ private fun AnswerPanel(
                     }
                 }
             }
-            // 重新生成：保留旧结果（半透明），顶部显示「重新生成中」旋转进度
-            // 改动 2：分支条件收窄后，重新生成路径的思考过程只能由本卡承载，否则会凭空消失；
-            // 用 AiThinkingBlock 就地呈现，普通模型无思考内容时该块不渲染，渲染结果零变化。
+            // 重新生成：保留旧结果（半透明）并展示线性进度条，与首次生成一致的流式加载反馈
             aiRegenerating && ai != null -> {
                 Spacer(Modifier.height(10.dp))
                 Surface(
@@ -1293,26 +1393,21 @@ private fun AnswerPanel(
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("正在重新生成解析…", fontSize = 12.5.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("正在重新生成解析…", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.weight(1f))
                             Text(ai.model, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(8.dp))
                         // 旧结果半透明展示，明确告知用户正在替换
                         Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), lineHeight = 20.sp)
-                        // 重新生成期间推理模型的思考过程在旧结果下方就地生长；普通模型无思考内容时不渲染
-                        if (aiReasoningText != null && aiReasoningText.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            AiThinkingBlock(text = aiReasoningText, caret = true)
-                        }
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
-            // 首生成：思考进度可视化（多步）
-            // 改动 2：思考内容一到就「卡内就地长」——不再切到流式卡。普通模型没有思考内容，
-            // 此时 aiReasoningText 为空，下方 AiThinkingBlock 整块不渲染，渲染结果与改动前完全一致。
+            // 首生成：准备进度可视化（检索 / 等待首 token）
             aiThinking != null -> {
                 Spacer(Modifier.height(8.dp))
                 Surface(
@@ -1325,11 +1420,6 @@ private fun AnswerPanel(
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
                             Text(aiThinking, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        // 思考过程在进度卡内就地生长：普通模型 aiReasoningText 为空时整块不渲染，零变化
-                        if (aiReasoningText != null && aiReasoningText.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            AiThinkingBlock(text = aiReasoningText, caret = true)
                         }
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
@@ -1384,87 +1474,6 @@ private fun AnswerPanel(
                     Spacer(Modifier.width(8.dp))
                     Text("AI 解析")
                 }
-            }
-        }
-    }
-}
-
-/**
- * AI 思考过程展示块（流式阶段专用，**仅展示、不落盘**）。
- *
- * - 普通模型没有思考内容时，调用方根本不会渲染本块，界面保持原样；
- * - 默认展开，点击标题行可折叠，展开 / 收起走 200ms 统一减速曲线（无回弹）；
- * - 内容超长时内部限高滚动，避免推理模型长思考把正文顶出屏幕；
- * - 底部一条细分隔线，与下方的正式解析做视觉区分。
- *
- * @param text 思考过程全量快照
- * @param caret 是否在末尾追加流式光标（答案尚未开始输出时为 true）
- */
-@Composable
-private fun AiThinkingBlock(
-    text: String,
-    caret: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var expanded by remember { mutableStateOf(true) }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable { expanded = !expanded }
-            .padding(vertical = 2.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.Psychology,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                "思考过程",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.width(2.dp))
-            Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
-            )
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)) +
-                expandVertically(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)),
-            exit = fadeOut(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)) +
-                shrinkVertically(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard))
-        ) {
-            Column {
-                Spacer(Modifier.height(4.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 168.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = if (caret) text + "▍" else text,
-                        fontSize = 12.5.sp,
-                        lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-                )
             }
         }
     }
@@ -1555,7 +1564,8 @@ private fun buildQueue(
     planId: String?,
     filterUnanswered: Boolean,
     specifiedQuestions: List<Pair<String, com.example.shuati.model.Question>> = emptyList(),
-    skipIncomplete: Boolean = true
+    skipIncomplete: Boolean = true,
+    filterType: QuestionType? = null
 ): List<QuizItem> {
     val effectiveMode = if (source == "all" || source == "browse") "sequence" else mode
     // 优先使用指定的题目列表（来自 questionIds 参数）
@@ -1566,7 +1576,7 @@ private fun buildQueue(
         }
         return ordered.map { (bid, q) -> QuizItem(bid, q) }
     }
-    return when (source) {
+    val base = when (source) {
         "wrong" -> repo.getWrongRecords().mapNotNull { rec ->
             rec.question?.takeIf { q -> !skipIncomplete || !q.incomplete }?.let { QuizItem(rec.bankId, it) }
         }
@@ -1576,15 +1586,9 @@ private fun buildQueue(
         "all" -> {
             // 全部题库：跨题库聚合；只刷未做题时按 __all__ 进度（namespaced）过滤
             val banks = repo.getBanks()
-            // 跳过不完整题目（选项/答案缺失），与小程序一致
-            val all = banks.flatMap { b ->
+            banks.flatMap { b ->
                 b.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(b.id, it) }
             }
-            val base = if (filterUnanswered) {
-                val doneSet = repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet()
-                all.filter { "${it.bankId}::${it.q.id}" !in doneSet }
-            } else all
-            if (effectiveMode == "random") base.shuffled() else base
         }
         "plan" -> {
             val plan = planId?.let { repo.getStudyPlans().find { p -> p.id == it } }
@@ -1597,28 +1601,31 @@ private fun buildQueue(
             // 首页「浏览模式」入口使用 bankId=__all__，聚合全部题库（保留真实题库 id 便于进度/错题归属）
             val isAll = bankId == "__all__"
             val bank = if (isAll) null else bankId?.let { repo.getBankById(it) }
-            var base = when {
+            var list = when {
                 bank != null -> bank.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(bank.id, it) }
                 isAll -> repo.getBanks().flatMap { b ->
                     b.questions.filter { q -> !skipIncomplete || !q.incomplete }.map { QuizItem(b.id, it) }
                 }
                 else -> emptyList()
             }
-            if (filterUnanswered && base.isNotEmpty()) {
+            if (filterUnanswered && list.isNotEmpty()) {
                 val answered = if (isAll)
                     (repo.getProgress("__all__")?.answeredIds?.toSet() ?: emptySet())
                 else
                     (repo.getProgress(bank!!.id)?.answeredIds ?: emptyList())
-                base = if (isAll) base.filter { "${it.bankId}::${it.q.id}" !in answered }
-                else base.filter { it.q.id !in answered }
+                list = if (isAll) list.filter { "${it.bankId}::${it.q.id}" !in answered }
+                else list.filter { it.q.id !in answered }
             }
-            // 浏览模式且题库允许乱序
-            val ordered = when {
-                effectiveMode == "random" -> base.shuffled()
-                source == "browse" && !isAll && bank?.questions?.any { it.orderFree } == true -> base.shuffled()
-                else -> base
-            }
-            ordered
+            list
         }
     }
+    // 题型筛选（同题型刷题）：先按题型过滤，再决定顺序
+    val filtered = if (filterType != null) base.filter { it.q.type == filterType } else base
+    val ordered = when {
+        effectiveMode == "random" -> filtered.shuffled()
+        source == "browse" && bankId != "__all__" &&
+            repo.getBankById(bankId ?: "")?.questions?.any { it.orderFree } == true -> filtered.shuffled()
+        else -> filtered
+    }
+    return ordered
 }

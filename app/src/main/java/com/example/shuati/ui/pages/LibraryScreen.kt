@@ -47,6 +47,7 @@ fun LibraryScreen(navController: NavController) {
     var banks by remember { mutableStateOf(emptyList<QuestionBank>()) }
     var searchKeyword by remember { mutableStateOf("") }
     var showDelete by remember { mutableStateOf<QuestionBank?>(null) }
+    var showCleanSample by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val context = LocalContext.current
 
@@ -86,6 +87,7 @@ fun LibraryScreen(navController: NavController) {
                     it.questions.any { q -> q.question.contains(searchKeyword, ignoreCase = true) }
         }
     }
+    val hasSample = remember(banks) { banks.any { it.id.startsWith("sample_") } }
 
     Scaffold(
 
@@ -99,6 +101,11 @@ fun LibraryScreen(navController: NavController) {
             ) {
                 if (selectedIds.isEmpty()) {
                     ScreenTopBar("题库管理", actions = {
+                        if (hasSample) {
+                            TextButton(onClick = { showCleanSample = true }) {
+                                Text("清理测试数据", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
                         TextButton(onClick = { navController.navigate(Routes.IMPORT) }) { Text("导入") }
                     })
                 } else {
@@ -339,6 +346,33 @@ fun LibraryScreen(navController: NavController) {
             },
             dismissButton = {
                 TextButton(onClick = { showDelete = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showCleanSample) {
+        val sampleCount = banks.count { it.id.startsWith("sample_") }
+        AlertDialog(
+            onDismissRequest = { showCleanSample = false },
+            title = { Text("清理测试数据") },
+            text = {
+                Text(
+                    "将删除 $sampleCount 个「示例」题库及其错题、收藏、历史、计划等全部关联数据，且不可恢复。\n" +
+                        "此操作仅移除测试数据，不影响你自建的题库。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        val n = repo.removeSampleData()
+                        loadBanks()
+                        snackbarHostState.showSnackbar("已清理 $n 个示例题库")
+                    }
+                    showCleanSample = false
+                }) { Text("清理", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanSample = false }) { Text("取消") }
             }
         )
     }

@@ -667,6 +667,44 @@ class AppRepository(private val context: Context) {
     }
 
     /**
+     * 一键清理全部「示例/测试」数据（id 以 sample_ 开头）。
+     * 仅删除测试数据，不影响用户自建题库与记录。返回删除的题库数量。
+     * 与 SampleBanks.kt 配套：调用本方法即移除测试模块的全部落库数据（无残留）。
+     */
+    fun removeSampleData(): Int {
+        val prefix = "sample_"
+        val removedCount = getBanks().count { it.id.startsWith(prefix) }
+        // 1) 题库
+        writeList(BANKS_KEY, getBanks().filter { !it.id.startsWith(prefix) })
+        // 2) 错题 / 收藏
+        writeList(WRONGS_KEY, getWrongRecords().filter { !it.bankId.startsWith(prefix) })
+        writeList(FAVORITES_KEY, getFavoriteRecords().filter { !it.bankId.startsWith(prefix) })
+        // 3) 学习计划 + 计划进度
+        val planIds = getStudyPlans()
+            .filter { it.id.startsWith(prefix) || it.bankId.startsWith(prefix) }
+            .map { it.id }
+        writeList(STUDY_PLANS_KEY, getStudyPlans()
+            .filter { !it.id.startsWith(prefix) && !it.bankId.startsWith(prefix) })
+        writeList(PLAN_PROGRESS_KEY, getAllPlanProgress().filter { it.planId !in planIds })
+        // 4) 历史
+        writeList(HISTORY_KEY, getHistoryRecords().filter { !it.bankId.startsWith(prefix) })
+        // 5) 刷题进度（逐题库 + __all__ 中 sample_:: 条目）
+        val progress = getAllProgress().mapNotNull { p ->
+            if (p.bankId.startsWith(prefix)) null
+            else if (p.bankId == "__all__") {
+                val kept = p.answeredIds.filter { !it.startsWith("$prefix::") }
+                if (kept.isEmpty()) null else p.copy(answeredIds = kept, everCompleted = false)
+            } else p
+        }
+        writeList(PROGRESS_KEY, progress)
+        // 6) 每题正确率统计 / 掌握度 / 错答历史（key 形如 sample_::qid）
+        writeString(QUESTION_STATS_KEY, json.encodeToString(getQuestionStats().filterKeys { !it.startsWith("$prefix::") }))
+        saveMasteryStreaks(getMasteryStreaks().filterKeys { !it.startsWith("$prefix::") })
+        writeString(WRONG_ANSWERS_KEY, json.encodeToString(getAllWrongAnswers().filterKeys { !it.startsWith("$prefix::") }))
+        return removedCount
+    }
+
+    /**
      * 本地存储占用（字节）：DataStore 持久化文件大小总和。
      * 等价小程序 Taro.getStorageInfoSync().currentSize 的展示用途。
      */

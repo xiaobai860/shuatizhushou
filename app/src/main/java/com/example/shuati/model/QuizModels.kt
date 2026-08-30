@@ -204,7 +204,21 @@ data class AiConfig(
     val llmBaseUrl: String = "",   // OpenAI 兼容端点，如 https://api.openai.com/v1
     val llmApiKey: String = "",
     val llmModel: String = "",
-    val searchProvider: String = "",  // "tavily" | "exa" | ""（空=依赖模型内置搜索）
+    val searchProvider: String = "",  // "tavily" | "exa" | "bocha" | ""（空=依赖模型内置搜索）
     val searchApiKey: String = "",
     val customPrompt: String = ""  // 自定义解析模板（即内置 skill），空=使用内置默认 skill
+)
+
+/**
+ * 单个大模型供应商配置（多供应商管理的基本单元）。
+ * 一个供应商可保存多个已拉取的模型，并指定其中一个为当前选中模型。
+ */
+@Serializable
+data class AiProviderConfig(
+    val id: String = "",                // 唯一 id（持久化标识，用于记忆"上次使用"）
+    val name: String = "",              // 用户自定义名称，如「DeepSeek」「我的硅基流动」
+    val baseUrl: String = "",           // OpenAI 兼容端点
+    val apiKey: String = "",
+    val models: List<String> = emptyList(),   // 用户从该供应商拉取并多选保存的模型列表
+    val selectedModel: String = ""      // 该供应商下当前选中的模型（空=未选）
 )

@@ -2,6 +2,7 @@ package com.example.shuati.logic
 
 import android.content.Context
 import android.net.Uri
+import com.example.shuati.model.AiExplanation
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.model.QuestionType
@@ -89,11 +90,20 @@ object ExcelParser {
         val typeIdx = colIdx { it.contains("题型") }
         val questionIdx = colIdx { it.contains("题干") || it.equals("题目", true) }
         val answerIdx = colIdx { it.contains("正确答案") || it.contains("答案") }
-        val explanationIdx = colIdx { it.contains("解析") }
+        // 解析列：精确匹配"解析"或"题目解析"等，但排除"AI解析"列（避免列冲突）
+        val explanationIdx = colIdx { h ->
+            val t = h.trim()
+            (t == "解析" || t.equals("解析", true) || (t.endsWith("解析") && !t.contains("AI")))
+        }
         val tagsIdx = colIdx { it.contains("标签") }
         val orderFreeIdx = colIdx { it.contains("不限顺序") || it.contains("order") }
-        val optIdx = ('A'..'G').map { l ->
-            colIdx { h -> Regex("选项$l|^$l$|opt$l|option_${l.lowercase()}", RegexOption.IGNORE_CASE).containsMatchIn(h.trim()) }
+        // AI 解析列：识别"AI解析"（导出写入的列），回填到 Question.aiExplanation
+        val aiExplanationIdx = colIdx { it.trim().equals("AI解析", true) || it.contains("AI解析") }
+        // 选项列：动态识别所有「选项X」（X 为任意字母），支持导入方自定义扩展列（E、F…）
+        val optionColumns = LinkedHashMap<Char, Int>()
+        headerCells.forEachIndexed { i, h ->
+            val m = Regex("^选项([A-Za-z])$").find(h.trim())
+            if (m != null) optionColumns[m.groupValues[1].uppercase().first()] = i
         }
 
         // 第一遍：收集非空 rawId，找出重复值
@@ -126,7 +136,7 @@ object ExcelParser {
             }
             val questionText = cell(questionIdx)
             val answerRaw = cell(answerIdx)
-            val opts = optIdx.mapNotNull { c -> cell(c).trim().ifEmpty { null } }
+            val opts = optionColumns.values.mapNotNull { c -> cell(c).trim().ifEmpty { null } }
 
             val resolvedType = explicitType ?: run {
                 // 自动推断
@@ -138,6 +148,7 @@ object ExcelParser {
             }
 
             val explanation = cell(explanationIdx).trim().ifEmpty { null }
+            val aiText = if (aiExplanationIdx >= 0) cell(aiExplanationIdx).trim() else ""
             val tags = if (tagsIdx >= 0)
                 cell(tagsIdx).split(Regex("[,，、|｜]")).map { it.trim() }.filter { it.isNotEmpty() }
             else emptyList()
@@ -184,6 +195,7 @@ object ExcelParser {
                     answer = normalizedAnswer,
                     type = resolvedType,
                     explanation = explanation,
+                    aiExplanation = aiText.ifEmpty { null }?.let { AiExplanation(text = it) },
                     tags = tags,
                     orderFree = isOrderFree,
                     incomplete = isIncomplete || isMissingId || isDupId,

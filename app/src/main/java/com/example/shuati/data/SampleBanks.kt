@@ -27,7 +27,8 @@ private fun q(
     options: List<String>? = null,
     answer: String,
     explanation: String? = null,
-    tags: List<String> = emptyList()
+    tags: List<String> = emptyList(),
+    orderFree: Boolean = false
 ) = Question(
     id = id,
     question = question,
@@ -35,7 +36,8 @@ private fun q(
     answer = answer,
     type = type,
     explanation = explanation,
-    tags = tags
+    tags = tags,
+    orderFree = orderFree
 )
 
 fun buildSampleBanks(): List<QuestionBank> {
@@ -136,6 +138,25 @@ fun buildSampleBanks(): List<QuestionBank> {
                     options = listOf("2", "9", "11", "15"), answer = "A,C",
                     explanation = "9=3×3，15=3×5，均非质数。", tags = listOf("数论"))
             )
+        ),
+        QuestionBank(
+            id = "sample_sci",
+            name = "综合知识（示例）",
+            createdAt = now,
+            updatedAt = now,
+            questions = listOf(
+                q("sci_q1", "地球大气中含量最高的气体是？", QuestionType.single,
+                    options = listOf("氮气", "氧气", "二氧化碳", "氢气"), answer = "氮气",
+                    explanation = "氮气约占大气体积的 78%。", tags = listOf("常识")),
+                q("sci_q2", "下列属于可再生能源的是？（多选）", QuestionType.multiple,
+                    options = listOf("太阳能", "风能", "煤炭", "水能"), answer = "A,B,D",
+                    explanation = "煤炭为化石燃料，不可再生。", tags = listOf("能源")),
+                q("sci_q3", "声音不能在真空中传播。", QuestionType.judge,
+                    answer = "正确", explanation = "声音需要介质，真空中无介质。", tags = listOf("物理")),
+                q("sci_q4", "光的三原色（RGB）分别是 ___ 、___ 和 ___ 。", QuestionType.fill,
+                    answer = "红|绿|蓝", orderFree = true,
+                    explanation = "红、绿、蓝三色光可混合出各种颜色。", tags = listOf("光学"))
+            )
         )
     )
 }
@@ -171,7 +192,8 @@ private fun seedSampleExtras(repo: AppRepository, banks: List<QuestionBank>) {
     // 错题示例
     listOf(
         "sample_cs" to "cs_q1",
-        "sample_math" to "math_q3"
+        "sample_math" to "math_q3",
+        "sample_sci" to "sci_q2"
     ).forEach { (bankId, qid) ->
         val bank = byId[bankId]!!
         val question = find(bankId, qid) ?: return@forEach
@@ -187,7 +209,8 @@ private fun seedSampleExtras(repo: AppRepository, banks: List<QuestionBank>) {
     // 收藏示例
     listOf(
         "sample_eng" to "eng_q1",
-        "sample_gk" to "gk_q3"
+        "sample_gk" to "gk_q3",
+        "sample_sci" to "sci_q1"
     ).forEach { (bankId, qid) ->
         val bank = byId[bankId]!!
         val question = find(bankId, qid) ?: return@forEach
@@ -238,4 +261,7 @@ private fun seedSampleExtras(repo: AppRepository, banks: List<QuestionBank>) {
     repo.recordQuestionResult("sample_cs", "cs_q4", correct = true)
     repo.recordQuestionResult("sample_math", "math_q5", correct = true)
     repo.recordQuestionResult("sample_eng", "eng_q1", correct = true)
+    repo.recordQuestionResult("sample_sci", "sci_q1", correct = true)
+    // 综合知识掌握度示例
+    repeat(2) { repo.incrementStreak("sample_sci", "sci_q1") }
 }
