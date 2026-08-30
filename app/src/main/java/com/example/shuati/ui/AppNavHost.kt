@@ -6,6 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -141,6 +144,27 @@ fun AppNavHost(sharedImport: SharedImportIntent? = null) {
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
+            // 页面转场：淡入淡出 + 轻微上移，避免子页面「瞬间跳变」的割裂感
+            enterTransition = {
+                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                    slideInVertically(
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        initialOffsetY = { it / 24 }
+                    )
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                    slideInVertically(
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        initialOffsetY = { -it / 24 }
+                    )
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+            },
             modifier = Modifier
                 .fillMaxSize()
                 // 顶层页底部留出导航栏空间，避免内容被叠加的 tab 遮挡；
@@ -258,8 +282,9 @@ fun AppNavHost(sharedImport: SharedImportIntent? = null) {
         // 上层：底部导航叠加在子页面之上，淡入淡出（不与内容争空间，返回时不会顶出子页面按钮）
         AnimatedVisibility(
             visible = currentRoute in topLevelRoutes,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            // 用带缓动的时长，让 tab 的淡入淡出更平滑（默认瞬间切换显得生硬）
+            enter = fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             SoftBottomBar(

@@ -1,8 +1,10 @@
 package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -192,8 +194,11 @@ fun StatsScreen(navController: NavController) {
             // 题库筛选 Tab
             if (bankList.size > 1) {
                 item {
+                    // 题库较多时支持左右滑动切换，避免全部挤在一行导致标签内文本被折行
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -201,7 +206,7 @@ fun StatsScreen(navController: NavController) {
                             FilterChip(
                                 selected = selectedBankId == id,
                                 onClick = { selectedBankId = id },
-                                label = { Text(name, fontSize = 12.sp) },
+                                label = { Text(name, fontSize = 12.sp, maxLines = 1) },
                                 modifier = Modifier.height(32.dp)
                             )
                         }

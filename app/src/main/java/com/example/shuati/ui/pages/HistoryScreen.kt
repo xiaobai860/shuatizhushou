@@ -87,12 +87,13 @@ fun HistoryScreen(navController: NavController) {
                     modifier = Modifier.fillMaxWidth(),
                     shadowElevation = 2.dp
                 ) {
-                    Row(
+                    // 自动换行展示全部题库（原先单行 Row 只放得下约 3 个，其余被挤出屏幕）
+                    FlowRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         FilterChip(
                             selected = selectedBankId == null,
@@ -107,7 +108,7 @@ fun HistoryScreen(navController: NavController) {
                             FilterChip(
                                 selected = selectedBankId == bankId,
                                 onClick = { selectedBankId = if (selectedBankId == bankId) null else bankId },
-                                label = { Text(bankName.take(8), fontSize = 12.sp) },
+                                label = { Text(bankName, fontSize = 12.sp) },
                                 leadingIcon = {
                                     Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(14.dp))
                                 }
@@ -117,13 +118,36 @@ fun HistoryScreen(navController: NavController) {
                 }
             }
 
-            // 统计概览
+            // 统计概览（此前只计算未展示，现补充为概览卡片）
             val totalSessions = sortedHistory.size
             val totalQuestions = sortedHistory.sumOf { it.total }
             val totalCorrect = sortedHistory.sumOf { it.correct }
             val avgAccuracy = if (totalQuestions > 0) String.format("%.1f%%", totalCorrect * 100.0 / totalQuestions) else "0%"
             val totalTime = sortedHistory.sumOf { it.durationSec ?: 0 }
-            val avgTime = if (totalSessions > 0) String.format("%.1fs", totalTime.toFloat() / totalSessions) else "0s"
+            val avgTime = if (totalSessions > 0) formatDuration(totalTime / totalSessions) else "0秒"
+
+            if (totalSessions > 0) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("学习统计", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            InfoItem("练习次数", "$totalSessions 次")
+                            InfoItem("累计题量", "$totalQuestions 题")
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            InfoItem("平均正确率", avgAccuracy)
+                            InfoItem("平均用时", avgTime)
+                        }
+                    }
+                }
+            }
 
             // 历史记录列表
             if (sortedHistory.isEmpty()) {
@@ -316,12 +340,24 @@ fun InfoItem(label: String, value: String) {
     }
 }
 
+/** 刷题模式/题型 → 中文标签（此前缺 continue/wrong 等，未匹配时直接显示英文）。 */
 fun getModeLabel(mode: String): String = when (mode) {
+    // 刷题模式
     "sequential" -> "顺序"
     "random" -> "随机"
     "browse" -> "浏览"
+    "continue" -> "续刷"
+    "wrong" -> "错题练习"
+    // 题型（历史记录中偶有传入题型值）
+    "single" -> "单选"
+    "multiple" -> "多选"
+    "judge" -> "判断"
+    "fill" -> "填空"
+    "essay" -> "简答"
     else -> mode
 }
+
+
 
 fun formatRelativeDate(timestamp: Long): String {
     val now = System.currentTimeMillis()

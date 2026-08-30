@@ -2,9 +2,11 @@ package com.example.shuati.ui.pages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -331,7 +333,11 @@ fun StudyTabScreen(navController: NavController) {
                             val recomFav = favCount
                             val recomNew = historyCount
                             Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // 三个 chip 保持在同一行：横向可滚动，避免空间不足时「新题」被挤到换行
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 AssistChip(
                                     onClick = { navController.navigate(Routes.RECOMMEND) },
                                     label = { Text("高频错题 $recomErr", fontSize = 10.5.sp) },

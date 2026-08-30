@@ -97,12 +97,13 @@ fun FavoritesScreen(navController: NavController) {
         Column(Modifier.fillMaxSize().padding(padding)) {
             // 题库筛选横排 chip 栏
             if (allBankIds.size > 1) {
-                Row(
+                // 自动换行展示全部题库（原先单行 Row 只放得下约 3 个，其余被挤出屏幕）
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     FilterChip(
                         selected = selectedBankId == null,
@@ -117,7 +118,7 @@ fun FavoritesScreen(navController: NavController) {
                         FilterChip(
                             selected = selectedBankId == bankId,
                             onClick = { selectedBankId = if (selectedBankId == bankId) null else bankId },
-                            label = { Text(bankName.take(8), fontSize = 12.sp) },
+                            label = { Text(bankName, fontSize = 12.sp) },
                             leadingIcon = {
                                 Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(14.dp))
                             }

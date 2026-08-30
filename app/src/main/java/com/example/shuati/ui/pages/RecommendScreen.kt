@@ -189,7 +189,11 @@ private fun RecItem(item: Recommend.RecommendItem, wrongInfo: com.example.shuati
             }
 
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // 标签自动换行：不再固定挤在一行（原单行会挤压第三个标签，导致其内部文本被折行）
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 reasonChip(item.reason)
                 TagChip(Recommend.typeLabel(q.type))
                 if (item.bankName.isNotBlank()) TagChip(item.bankName)
