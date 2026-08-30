@@ -426,6 +426,69 @@ fun QuizScreen(
 
     val current = queue[index]
 
+    /**
+     * 发起一次 AI 解析请求（首生成与重新生成共用）。
+     * onAiClick 直接调用本函数；onRegenerate 仍走弹窗、由弹窗「生成」按钮调用本函数。
+     */
+    fun requestAi(hint: String) {
+        val q = current.q
+        val bid = current.bankId
+        aiJob?.cancel()              // 取消上一次未完成的请求
+        aiBusy = true
+        aiError = null
+        aiFlow = ""
+        aiReasoning = ""
+        // 是否「重新生成」：已有解析则保留旧结果并展示重生成动画
+        val existing = aiMap[q.id] ?: q.aiExplanation
+        aiRegenerating = existing != null
+        // 初始进度文案：与 AiExplainService 的新文案风格统一（改动 3）。
+        // 首生成走「正在生成解析…」；重新生成保持「正在重新生成解析…」（重新生成期间不随 Thinking 事件刷新）。
+        aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
+        aiJob = coroutineScope.launch {
+            try {
+                val cfg = AiConfigStore.load(context)
+                val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
+                val eff = hint.ifBlank { bankHint }
+                AiExplainService.explainStream(cfg, q, eff) { ev ->
+                    when (ev) {
+                        is AiStreamEvent.Thinking -> if (!aiRegenerating) aiThinking = ev.msg
+                        is AiStreamEvent.Generating -> {
+                            aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
+                            aiFlow = ""
+                            aiReasoning = ""
+                        }
+                        // Delta 与 Reasoning 传的都是「全量快照」，整体替换而非 append
+                        is AiStreamEvent.Delta -> aiFlow = ev.text
+                        // 只有真的收到思考内容才会来这个事件；普通模型永远收不到
+                        is AiStreamEvent.Reasoning -> aiReasoning = ev.text
+                        is AiStreamEvent.Done -> {
+                            aiRegenerating = false
+                            repo.saveAiExplanation(bid, q.id, ev.ai)
+                            aiMap = aiMap + (q.id to ev.ai)
+                            aiFlow = ""
+                            aiReasoning = ""
+                        }
+                        is AiStreamEvent.Error -> {
+                            aiError = ev.msg
+                            aiFlow = ""
+                            aiReasoning = ""
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                aiError = e.message ?: "生成失败"
+            } finally {
+                aiThinking = null
+                aiBusy = false
+                aiRegenerating = false
+                // 出错 / 取消 / 结束时统一清掉流式残留，避免串到下一题
+                aiFlow = ""
+                aiReasoning = ""
+            }
+        }
+    }
+
     // 会话结果收集（结果页展示用）：进入时重置，记录同题库上次正确率与已有错题
     val sessionInitialized = remember { mutableStateOf(false) }
     if (!sessionInitialized.value) {
@@ -792,70 +855,13 @@ fun QuizScreen(
                         aiRegenerating = aiRegenerating,
                         onAiClick = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
-                            showAiHintDialog = true
+                            requestAi(aiHintDraft)
                         },
                         onRegenerate = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
                             showAiHintDialog = true
                         }
                     )
-                }
-            }
-
-            fun requestAi(hint: String) {
-                val q = current.q
-                val bid = current.bankId
-                aiJob?.cancel()              // 取消上一次未完成的请求
-                aiBusy = true
-                aiError = null
-                aiFlow = ""
-                aiReasoning = ""
-                // 是否「重新生成」：已有解析则保留旧结果并展示重生成动画
-                val existing = aiMap[q.id] ?: q.aiExplanation
-                aiRegenerating = existing != null
-                aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在分析题目并准备资料…"
-                aiJob = coroutineScope.launch {
-                    try {
-                        val cfg = AiConfigStore.load(context)
-                        val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
-                        val eff = hint.ifBlank { bankHint }
-                        AiExplainService.explainStream(cfg, q, eff) { ev ->
-                            when (ev) {
-                                is AiStreamEvent.Thinking -> if (!aiRegenerating) aiThinking = ev.msg
-                                is AiStreamEvent.Generating -> {
-                                    aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
-                                    aiFlow = ""
-                                    aiReasoning = ""
-                                }
-                                // Delta 与 Reasoning 传的都是「全量快照」，整体替换而非 append
-                                is AiStreamEvent.Delta -> aiFlow = ev.text
-                                // 只有真的收到思考内容才会来这个事件；普通模型永远收不到
-                                is AiStreamEvent.Reasoning -> aiReasoning = ev.text
-                                is AiStreamEvent.Done -> {
-                                    aiRegenerating = false
-                                    repo.saveAiExplanation(bid, q.id, ev.ai)
-                                    aiMap = aiMap + (q.id to ev.ai)
-                                    aiFlow = ""
-                                    aiReasoning = ""
-                                }
-                                is AiStreamEvent.Error -> {
-                                    aiError = ev.msg
-                                    aiFlow = ""
-                                    aiReasoning = ""
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        aiError = e.message ?: "生成失败"
-                    } finally {
-                        aiThinking = null
-                        aiBusy = false
-                        aiRegenerating = false
-                        // 出错 / 取消 / 结束时统一清掉流式残留，避免串到下一题
-                        aiFlow = ""
-                        aiReasoning = ""
-                    }
                 }
             }
 
@@ -1241,8 +1247,9 @@ private fun AnswerPanel(
                 }
             }
             // 流式逐字生成中（首生成与重新生成共用实时卡）
-            // 推理模型通常会先吐思考内容、后吐答案，因此「只有思考内容」时也要进入实时卡
-            aiStreamingText != null || aiReasoningText != null -> {
+            // 思考内容（reasoning）不再单独命中本分支：首生成时思考在下方进度卡内就地生长，
+            // 重新生成时思考在重新生成卡内就地生长；本分支只负责「答案已开始生成」后的实时卡。
+            aiStreamingText != null -> {
                 val reasonText = aiReasoningText
                 val answerText = aiStreamingText
                 // 普通模型（无思考区）沿用改动前的 6dp，保证该路径零变化；
@@ -1275,6 +1282,8 @@ private fun AnswerPanel(
                 }
             }
             // 重新生成：保留旧结果（半透明），顶部显示「重新生成中」旋转进度
+            // 改动 2：分支条件收窄后，重新生成路径的思考过程只能由本卡承载，否则会凭空消失；
+            // 用 AiThinkingBlock 就地呈现，普通模型无思考内容时该块不渲染，渲染结果零变化。
             aiRegenerating && ai != null -> {
                 Spacer(Modifier.height(10.dp))
                 Surface(
@@ -1293,10 +1302,17 @@ private fun AnswerPanel(
                         Spacer(Modifier.height(8.dp))
                         // 旧结果半透明展示，明确告知用户正在替换
                         Text(ai.text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), lineHeight = 20.sp)
+                        // 重新生成期间推理模型的思考过程在旧结果下方就地生长；普通模型无思考内容时不渲染
+                        if (aiReasoningText != null && aiReasoningText.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            AiThinkingBlock(text = aiReasoningText, caret = true)
+                        }
                     }
                 }
             }
             // 首生成：思考进度可视化（多步）
+            // 改动 2：思考内容一到就「卡内就地长」——不再切到流式卡。普通模型没有思考内容，
+            // 此时 aiReasoningText 为空，下方 AiThinkingBlock 整块不渲染，渲染结果与改动前完全一致。
             aiThinking != null -> {
                 Spacer(Modifier.height(8.dp))
                 Surface(
@@ -1309,6 +1325,11 @@ private fun AnswerPanel(
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
                             Text(aiThinking, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        // 思考过程在进度卡内就地生长：普通模型 aiReasoningText 为空时整块不渲染，零变化
+                        if (aiReasoningText != null && aiReasoningText.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            AiThinkingBlock(text = aiReasoningText, caret = true)
                         }
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)

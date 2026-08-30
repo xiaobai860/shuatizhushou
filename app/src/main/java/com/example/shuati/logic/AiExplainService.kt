@@ -5,8 +5,8 @@ import com.example.shuati.model.AiConfig
 import com.example.shuati.model.AiExplanation
 import com.example.shuati.model.Question
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -204,20 +204,16 @@ object AiExplainService {
         require(cfg.llmBaseUrl.isNotBlank() && cfg.llmApiKey.isNotBlank() && cfg.llmModel.isNotBlank()) {
             "请先在「设置 → AI 大模型配置」中填写大模型地址、Key 与模型"
         }
-        onEvent(AiStreamEvent.Thinking("正在分析题目…"))
-        delay(350)
-
+        // 进度文案只由真实事件驱动，不插入任何人造 delay（原 350ms + 300ms 仅为看清文案，并非服务端需要）。
+        //  - 启用搜索时先上报「正在检索相关资料…」，对应真实的网络等待；
+        //  - 随后上报「正在生成解析…」，对应真实的等待首 token（TTFT）。
+        // 已删除「正在分析题目…」「已获取联网资料，正在组织解析…」「正在组织解析框架…」三条毫秒级本地拼接文案。
         val searchContext = if (AiConfigStore.searchEnabled(cfg)) {
             onEvent(AiStreamEvent.Thinking("正在检索相关资料…"))
-            runCatching { doSearch(cfg, q.question) }.getOrElse { null }
+            // 搜索加 5s 超时：引擎挂起时不让用户无限等待（否则最多 180s 且期间无法重试）。
+            // 超时即放弃搜索、按「无联网资料」继续走生成流程，与搜索失败行为一致；withTimeoutOrNull 不会抛异常。
+            withTimeoutOrNull(5000) { runCatching { doSearch(cfg, q.question) }.getOrNull() }
         } else null
-        if (searchContext != null) {
-            onEvent(AiStreamEvent.Thinking("已获取联网资料，正在组织解析…"))
-            delay(300)
-        } else {
-            onEvent(AiStreamEvent.Thinking("正在组织解析框架…"))
-            delay(300)
-        }
 
         val prompt = buildPrompt(q, hint, searchContext?.text)
         // 仅用于进度文案：推理模型的思考阶段可能较长，提示语略有区别。
