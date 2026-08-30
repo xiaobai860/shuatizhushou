@@ -220,7 +220,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                                                 shape = MaterialTheme.shapes.small
                                             ) {
                                                 Text(
-                                                    "答案：${rec.question?.let { formatAnswerWithLabel(it) } ?: ""}",
+                                                    "答案：${formatAnswerWithLabel(rec.question)}",
                                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.SemiBold,
@@ -277,7 +277,7 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                         if (!rec.question?.answer.isNullOrBlank()) {
                                             Spacer(Modifier.height(4.dp))
-                                            Text("答案：${rec.question?.answer}", fontSize = 12.sp,
+                                            Text("答案：${rec.question.answer}", fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                                         }
                                     }

@@ -11,7 +11,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -198,7 +198,7 @@ fun ResultScreen(
                     CardBox {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                Icons.Filled.TrendingUp,
+                                Icons.AutoMirrored.Filled.TrendingUp,
                                 null,
                                 tint = if (accuracy >= prevAcc) MaterialTheme.semantic.success else MaterialTheme.semantic.error,
                                 modifier = Modifier.size(16.dp)

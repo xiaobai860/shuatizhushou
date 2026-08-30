@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -22,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import android.os.Build
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
 import java.time.DayOfWeek
@@ -555,10 +555,8 @@ fun MineTabScreen(navController: NavController) {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
     }
     val version = pkgInfo?.versionName
-    val buildNumber = pkgInfo?.let {
-        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode else it.versionCode.toLong()
-        code.toString()
-    }
+    // minSdk 34 ≥ API 28(P)，longVersionCode 始终可用，无需回退到已弃用的 versionCode
+    val buildNumber = pkgInfo?.longVersionCode?.toString()
     LaunchedEffect(Unit) {
         storageUsed = repo.storageUsedBytes()
         storageBreakdown = repo.storageBreakdown()
@@ -778,7 +776,7 @@ fun MineTabScreen(navController: NavController) {
             item {
                 Column(Modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)) {
                     ListRow(
-                        icon = { Icon(Icons.Filled.HelpOutline, null, Modifier.size(18.dp)) },
+                        icon = { Icon(Icons.AutoMirrored.Filled.HelpOutline, null, Modifier.size(18.dp)) },
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "使用帮助",

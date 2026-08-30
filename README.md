@@ -16,10 +16,15 @@
 | Excel | Apache POI 5.3.0（导入解析 / 导出生成） |
 | 网络 | Retrofit 2.11.0 + OkHttp 4.12.0（AI 大模型 / 搜索引擎，OpenAI 兼容） |
 | 加密 | androidx.security-crypto（AI 配置本地加密存 EncryptedSharedPreferences） |
-| SDK | minSdk 34 / targetSdk 36 / **compileSdk 36**（AGP 8.9.2 官方上限，勿升 37） |
+| 构建 | **AGP 9.2.0 + Gradle 9.5.0**（运行 JDK 用 Android Studio 自带 **JBR 25**，产物字节码固定 Java 17） |
+| SDK | minSdk 34 / **targetSdk 36** / **compileSdk 37** |
 
-> **版本红线（勿升）**：AGP 8.9.2 / Kotlin 2.3.21 / compileSdk 36 / BOM 2026.06.01。
-> ⚠️ 升 BOM 2026.08.00 会让 Compose 1.12.0 要求 compileSdk ≥ 37，而 AGP 8.9.2 上限为 36，导致 `checkDebugAarMetadata` 编译失败 22 条。
+> **版本组合说明**：
+> - `compileSdk 37` 要求 **AGP ≥ 9.1.1**（官方对照表），故采用 AGP 9.2.0；AGP 9.2 要求 **Gradle ≥ 9.4.1**，JDK 最低 **17**。
+> - `targetSdk` 保持 **36**（与 compileSdk 解耦，避免新平台行为变更影响运行时）。
+> - AGP 9.0+ **已内置 Kotlin Android 支持**，无需 `org.jetbrains.kotlin.android` 插件（已移除）；`kotlin-compose` / `kotlin-serialization` 插件保留。
+> - **新 DSL 已就绪**：本项目零 legacy Variant API（无 `applicationVariants` / `variantFilter` / `registerJavaGeneratingTask` 等），已实测 `android.newDsl=true` 编译通过且无弃用警告，故**不声明**该 opt-out flag（它在 AGP 10.0 会被彻底移除）。
+> - 未启用 multidex：minSdk 34 ≥ 21，原生多 dex，无需 `androidx.multidex`。
 
 **版本号规则**（显示「`v$versionName · build $versionCode`」）：
 - `versionName`：外显版本号，格式 `YYYYMMDD` + 两位当日迭代（如 `2026083009`），手动修改。
@@ -184,26 +189,34 @@ app/src/main/java/com/example/shuati/
 ## 构建与运行
 
 > **环境要点（Windows 本机）**
-> - JDK 必须显式指定 **JDK 17**，勿用 Android Studio 自带 JBR 25（Gradle 8.11 不支持 Java 23+）。
->   `JAVA_HOME="C:/Users/XX/.jdks/ms-17.0.20.1"`
+> - **JDK 推荐用 Android Studio 自带的 JBR 25**（`C:/Program Files/Android/Android Studio/jbr`），零配置、已实测构建成功。
+>   - 官方兼容：Gradle 9.5 支持运行 JDK **17~26**；Java 25 需 Gradle ≥ 9.1.0（我们是 9.5.0，满足）。AGP 9.2 最低 JDK 17。
+>   - ⚠️ 历史坑已失效：旧笔记「勿用 JBR 25」是 **Gradle 8.11 时代**的限制（8.11 仅支持到 Java 23）。**Gradle 9.5 下 JBR 25 可用，不必再另装 JDK 17。**
+>   - 产物不受影响：`compileOptions`/`kotlin.jvmTarget` 已固定 **Java 17**，运行 Gradle 的 JDK 版本与产物字节码版本无关。
+> - 需安装 **Android SDK Platform 37** 与 **build-tools 37.0.0**（本机已具备）。
 > - **切勿设置 `GRADLE_USER_HOME`**：Git Bash 下 JVM 会误解析成 `\c\Users\...` 触发 `*.lck 拒绝访问`。
-> - 国内镜像已配置（长期保留，无需还原）：`settings.gradle.kts` 用阿里云仓库、wrapper 用腾讯云镜像。
-> - 偶发 `gradle-8.11.1-bin.zip.lck 拒绝访问` / `native-platform.dll 加载失败`：删孤儿 lock + 清 `~/.gradle/native`、`~/.gradle/daemon`，或 `--stop --no-daemon` 复跑。
+> - 国内镜像已配置（长期保留，无需还原）：`settings.gradle.kts` 依赖仓库用阿里云；wrapper `distributionUrl` 用**腾讯云**镜像（Gradle 9.5.0 已验证可下载）。
+>   - ⚠️ 中科大镜像 `mirrors.ustc.edu.cn/gradle/` 会 HEAD 假 200、实际下载 404；阿里云 macports 路径 403。**只用腾讯云或华为云**。
+> - 偶发 `*.zip.lck 拒绝访问` / `native-platform.dll 加载失败`：删 `~/.gradle/wrapper/dists/**/*.lck` 孤儿锁 + 清 `~/.gradle/native`、`~/.gradle/daemon`，或 `--stop --no-daemon` 复跑。
 
-```bash
-# 显式 JDK 后编译（PowerShell）
-$env:JAVA_HOME = "C:/Users/XX/.jdks/ms-17.0.20.1"
+```powershell
+# 编译（PowerShell）
+$env:JAVA_HOME = "C:/Program Files/Android/Android Studio/jbr"   # JBR 25，推荐
+$env:PATH      = "$env:JAVA_HOME/bin;$env:PATH"
 cd D:/Android/shuati
-./gradlew assembleDebug          # 产物 app/build/outputs/apk/debug/app-debug.apk
+./gradlew.bat assembleDebug --no-daemon
+# 产物 app/build/outputs/apk/debug/app-debug.apk
 
 # 跑单测（不触发 versionCode 自增）
-./gradlew :app:testDebugUnitTest
+./gradlew.bat :app:testDebugUnitTest
 
 # 装真机（设备 c733003）
 adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-环境要求：Android Studio（含 SDK Platform 36）、JDK 17、Android 设备 API 34+。
+环境要求：Android Studio Panda 3 (2025.3.3 Patch 1)+（匹配 AGP 9.x，自带 JBR 25 即可）、Android SDK Platform 37、设备 API 34+。
+
+> Android Studio 中确认：`Settings → Build Tools → Gradle → Gradle JDK`，选 **`jbr-25`**（或 "Android Studio default JDK"）。
 
 ---
 
@@ -212,6 +225,16 @@ adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 - `app/src/test`（JVM 单测，JUnit4）：`AiExplainServiceTest`（12 例）、`ExcelRoundTripTest`（2 例），共 **14 例全绿**
 - 跑法：`:app:testDebugUnitTest --no-daemon`（不含 assemble，不触发 buildNumber 自增）
 - 覆盖：`modelHasBuiltinSearch` / `providerSupportsPromptCache` allowlist、`buildPrompt` 注入、SSE 累积解析、`bochaResultsToSearch` 截断、Excel 多选项动态列 + AI 解析往返 + 模板对齐
+
+## 编译警告
+
+全量编译仅剩 **1 条**（历史 16 条已清理）：
+
+- `Opt-in requirement marker 'androidx.compose.material.ExperimentalMaterialApi' is unresolved` —— 来自 `material-icons-extended` 依赖库的 Kotlin 元数据，**项目源码零引用**，非弃用、无害、源码层不可修，可忽略。
+
+> 已清理项（2026-08-30）：冗余 `!!` 与多余安全调用（Dedup/EditBank/Recommend/Wrongs/StudyPlan）、恒真条件（AppRepository settings 判空 / QuizScreen answerText / TabScreens versionCode 回退分支）、废弃图标（TrendingUp / HelpOutline → `Icons.AutoMirrored.*`）。
+>
+> 其中 **StudyPlanScreen 剩余天数计算**为实质修复：`SimpleDateFormat#parse` 返回平台类型（Kotlin 视为 `Date?`），原写法取值失败会静默不显示剩余天数；现为安全取值 + 局部 val 传递非空日期。
 
 ---
 

@@ -563,23 +563,21 @@ class AppRepository(private val context: Context) {
             }
         }
 
-        // 偏好设置
-        if (data.settings != null) {
-            if (overwriteAll) {
-                saveMasteryTarget(data.settings.masteryTarget)
-                saveMasteryStreaks(data.settings.masteryStreaks)
-                saveDedupThreshold(data.settings.dedupThreshold)
-                saveDynamicColor(data.settings.dynamicColor)
-                saveThemeMode(data.settings.themeMode)
-            } else {
-                if (readString(MASTERY_TARGET_KEY, "") == "") saveMasteryTarget(data.settings.masteryTarget)
-                val localStreaks = getMasteryStreaks()
-                val merged = data.settings.masteryStreaks + localStreaks  // 本地优先
-                saveMasteryStreaks(merged)
-                if (readString(DEDUP_THRESHOLD_KEY, "") == "") saveDedupThreshold(data.settings.dedupThreshold)
-                if (readString(DYNAMIC_COLOR_KEY, "") == "") saveDynamicColor(data.settings.dynamicColor)
-                if (readString(THEME_MODE_KEY, "") == "") saveThemeMode(data.settings.themeMode)
-            }
+        // 偏好设置（BackupData.settings 为非空的 AppSettings，无需判空）
+        if (overwriteAll) {
+            saveMasteryTarget(data.settings.masteryTarget)
+            saveMasteryStreaks(data.settings.masteryStreaks)
+            saveDedupThreshold(data.settings.dedupThreshold)
+            saveDynamicColor(data.settings.dynamicColor)
+            saveThemeMode(data.settings.themeMode)
+        } else {
+            if (readString(MASTERY_TARGET_KEY, "") == "") saveMasteryTarget(data.settings.masteryTarget)
+            val localStreaks = getMasteryStreaks()
+            val merged = data.settings.masteryStreaks + localStreaks  // 本地优先
+            saveMasteryStreaks(merged)
+            if (readString(DEDUP_THRESHOLD_KEY, "") == "") saveDedupThreshold(data.settings.dedupThreshold)
+            if (readString(DYNAMIC_COLOR_KEY, "") == "") saveDynamicColor(data.settings.dynamicColor)
+            if (readString(THEME_MODE_KEY, "") == "") saveThemeMode(data.settings.themeMode)
         }
 
         // 每题正确率统计（key="bankId::questionId"）

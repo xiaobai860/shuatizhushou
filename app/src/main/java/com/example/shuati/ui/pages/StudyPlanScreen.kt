@@ -195,7 +195,7 @@ private fun PlanCard(
     // 今日进度（仅当日会话生效；对齐小程序：今日进度 X/目标 + 进度条 + 完成横幅）
     val sessionActive = pp?.sessionDate == today
     val todayProgress = if (sessionActive) {
-        if (isStudy) pp?.sessionAnsweredCount ?: 0 else pp?.sessionBrowseIndex ?: 0
+        if (isStudy) pp.sessionAnsweredCount else pp.sessionBrowseIndex
     } else 0
     val todayTotal = plan.dailyCount
     val isDoneToday = sessionDone || (todayTotal > 0 && todayProgress >= todayTotal)
@@ -257,11 +257,16 @@ private fun PlanCard(
                     Spacer(Modifier.height(7.dp))
                     Text("第 $roundNo/$totalRounds 轮 · 预计完成 ${estFinishDate ?: "—"}",
                         fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (plan.endDate != null && !isExpired) {
+                    // 捕获为局部 val：lambda 内无法保留对 plan.endDate 的智能转换
+                    val endDate = plan.endDate
+                    if (endDate != null && !isExpired) {
                         Spacer(Modifier.height(3.dp))
                         val remainDays = runCatching {
                             val df = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                            (df.parse(plan.endDate).time - df.parse(today).time) / 86400000L
+                            // SimpleDateFormat#parse 返回平台类型（Kotlin 视为 Date?），需安全取值
+                            val endMs = df.parse(endDate)?.time
+                            val nowMs = df.parse(today)?.time
+                            if (endMs != null && nowMs != null) (endMs - nowMs) / 86400000L else null
                         }.getOrNull()?.toInt()
                         if (remainDays != null) {
                             Text(

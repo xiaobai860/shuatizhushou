@@ -1373,7 +1373,7 @@ private fun AnswerPanel(
                             Spacer(Modifier.width(6.dp))
                             Text(if (aiRegenerating) "AI 解析 · 重新生成中" else "AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
                         }
-                        if (answerText != null && answerText.isNotBlank()) {
+                        if (answerText.isNotBlank()) {
                             Spacer(Modifier.height(6.dp))
                             // 逐字符流式渲染：快照整体替换，光标体现解析进度
                             Text(answerText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)

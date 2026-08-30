@@ -76,7 +76,7 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                         groups.map { groupIds ->
                             groupIds.mapNotNull { qid ->
                                 bank.questions.firstOrNull { it.id == qid }?.let { qid to it }
-                            }.filter { it.second != null }.map { it.first to it.second!! }
+                            }
                         }.filter { it.size > 1 }
                     } else emptyList()
                 }

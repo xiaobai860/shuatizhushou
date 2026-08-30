@@ -158,7 +158,7 @@ private fun RecItem(item: Recommend.RecommendItem, wrongInfo: com.example.shuati
             if (!q.options.isNullOrEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Column {
-                    q.options!!.withIndex().forEach { (i, opt) ->
+                    q.options.withIndex().forEach { (i, opt) ->
                         val letter = ('A' + i).toString()
                         val isCorrect = ScoringHints.isAnswer(q, i)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -184,7 +184,7 @@ private fun RecItem(item: Recommend.RecommendItem, wrongInfo: com.example.shuati
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("参考答案：", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                    Text(q.answer!!, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(q.answer, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
             }
 

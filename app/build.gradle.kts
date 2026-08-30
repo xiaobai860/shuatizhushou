@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // AGP 9.0+ 已内置 Kotlin Android 支持，无需 org.jetbrains.kotlin.android
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
@@ -9,8 +9,8 @@ import java.util.Properties
 
 android {
     namespace = "com.example.shuati"
-    // AGP 8.9.2 官方支持上限为 36（本机无 android-37 稳定平台；代码未使用 API 37 专属符号）
-    compileSdk = 36
+    // AGP 9.2.0 支持 compileSdk/targetSdk 37（本机已安装 android-37 平台）
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.shuati"
@@ -40,7 +40,6 @@ android {
         }
         versionCode = buildNumber
         versionName = "2026083009"
-        multiDexEnabled = true
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -85,7 +84,6 @@ kotlin {
 dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.multidex:multidex:2.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.13.0")
 

@@ -402,7 +402,7 @@ fun suspectReasons(q: Question): List<String> {
         if (opts.size < 2) reasons += "选项不足 2 个"
         if (opts.size != opts.toSet().size) reasons += "存在重复选项"
         if (q.type == QuestionType.multiple && !q.answer.isNullOrBlank()) {
-            val a = q.answer!!.trim()
+            val a = q.answer.trim()
             // 多选但答案未用分隔符（如只写一个字母）→ 疑似
             if (!Regex("[,，|｜、]").containsMatchIn(a) && a.length <= 2) reasons += "多选答案未用分隔符"
         }

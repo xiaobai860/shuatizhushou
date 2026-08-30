@@ -2,13 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 仅 AI 解析联网所需（OkHttp/Retrofit 调用 LLM 与搜索引擎） -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
+
+    <!-- 无需任何存储权限：所有文件读写均走 SAF（ACTION_OPEN_DOCUMENT / ACTION_CREATE_DOCUMENT），
+         由用户在系统文件选择器中显式授权，与 uses-permission 声明无关。
+         此前声明的 READ_EXTERNAL_STORAGE / READ_MEDIA_IMAGES / READ_MEDIA_DOCUMENTS /
+         WRITE_EXTERNAL_STORAGE 在 minSdk 34 下均为死声明（且项目只处理 xlsx/zip，从不涉及图片），已移除。 -->
 
     <application
         android:name=".ShuatiApplication"

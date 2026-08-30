@@ -4,6 +4,8 @@
 build/
 app/build/
 **/build/
+# release 变体输出（不在 app/build/ 下，独立于上述规则）
+app/release/
 captures/
 .externalNativeBuild/
 .cxx/
@@ -31,11 +33,8 @@ output.json
 .codebuddy/
 build_log.txt
 
-# —— Gradle Wrapper JAR（不同环境版本可能不同，按需保留） ——
-gradle/wrapper/gradle-wrapper.jar
-
-# —— Gradle Wrapper 批处理脚本（Windows） ——
-gradlew.bat
+# —— Gradle Daemon JVM 配置（本地可再生；且固定版本会与 IDE 实际 JDK 冲突） ——
+gradle/gradle-daemon-jvm.properties
 
 # —— Android SDK 工具目录（体积大，不入库） ——
 sdktools/

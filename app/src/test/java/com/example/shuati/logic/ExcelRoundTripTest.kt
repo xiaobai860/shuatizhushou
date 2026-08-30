@@ -39,8 +39,9 @@ class ExcelRoundTripTest {
 
         val out1 = result.bank.questions.first { it.id == "q1" }
         assertEquals(6, out1.options?.size)                 // 动态选项列扩展到 F
-        assertEquals("一", out1.options!![0])
-        assertEquals("六", out1.options!![5])
+        val opts = out1.options!!
+        assertEquals("一", opts[0])
+        assertEquals("六", opts[5])
         assertEquals(QuestionType.single, out1.type)        // 中文题型往返
         assertEquals("AI 生成的解析内容", out1.aiExplanation?.text) // AI 解析往返
 
