@@ -46,6 +46,7 @@ sdktools/
 *.jks
 *.keystore
 signing.properties
+keystore.properties
 
 # —— WorkBuddy 本地数据（记忆/会话缓存，勿入库） ——
 .workbuddy/

@@ -7,10 +7,34 @@ plugins {
 
 import java.util.Properties
 
+// ── 本地签名配置（keystore.properties 被 .gitignore 忽略，不入库） ──
+// 文件内容示例（由本地创建，勿提交）：
+//   storeFile=D:/Android/paibanrili/paibanrili
+//   storePassword=xxx
+//   keyAlias=key0
+//   keyPassword=xxx
+// 若文件不存在（如 CI / 无密钥环境），release 自动退化为 unsigned 变体，不影响 debug 开发。
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasSigning = keystoreProps.getProperty("storeFile") != null
+
 android {
     namespace = "com.example.shuati"
     // AGP 9.2.0 支持 compileSdk/targetSdk 37（本机已安装 android-37 平台）
     compileSdk = 37
+
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.example.shuati"
@@ -54,6 +78,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 若本地配置了 keystore.properties 则自动签名 release（产物为 -release.apk，可直装）
+            if (hasSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
