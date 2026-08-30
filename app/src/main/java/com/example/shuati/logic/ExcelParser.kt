@@ -5,18 +5,17 @@ import android.net.Uri
 import com.example.shuati.model.QuestionBank
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.apache.poi.hssf.usermodel.HSSFWorkbook
-import org.apache.poi.ss.usermodel.Sheet
-import org.apache.poi.ss.usermodel.Workbook
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.InputStream
 import java.util.UUID
 
 /**
- * Excel 题库解析（.xlsx 与 .xls）。
+ * Excel 题库解析（.xlsx，新版 Excel 2007+）。
  *
  * 本类只负责「把 Excel 适配成表格」，题库字段解析统一委托给 [QuestionTableParser]，
  * 与 CSV 等其它格式共用同一套逻辑，保证各格式行为一致。
+ *
+ * 底层使用自研的轻量读写器 [LightXlsx]（xlsx = ZIP + XML），不依赖 Apache POI，
+ * 显著减小 APK 体积。仅支持 .xlsx，不再支持老版 .xls（Excel 97-2003，请另存为 xlsx/csv 导入）。
  *
  * 支持两种表格形态（由内核处理）：
  * 1. 表头格式：首行含「题干 / 正确答案 / 题型」等列名时按列名定位
@@ -44,27 +43,8 @@ object ExcelParser {
 
     /** 从 InputStream 解析（供单测 / 备份导入复用）。 */
     fun parseStream(stream: InputStream, bankName: String): ParseResult {
-        val workbook: Workbook = XSSFWorkbook(stream)
-        return try {
-            parseWorkbook(workbook, bankName)
-        } finally {
-            workbook.close()
-        }
-    }
-
-    /** 老版 .xls（HSSF）。 */
-    fun parseXls(stream: InputStream, bankName: String): ParseResult {
-        val workbook: Workbook = HSSFWorkbook(stream)
-        return try {
-            parseWorkbook(workbook, bankName)
-        } finally {
-            workbook.close()
-        }
-    }
-
-    private fun parseWorkbook(workbook: Workbook, bankName: String): ParseResult {
-        val sheet: Sheet = workbook.getSheetAt(0)
-        val result = QuestionTableParser.parse(SheetTable(sheet))
+        val rows = LightXlsx.read(stream)
+        val result = QuestionTableParser.parse(ListTable(rows))
         val now = System.currentTimeMillis()
         return ParseResult(
             bank = QuestionBank(
@@ -80,26 +60,13 @@ object ExcelParser {
         )
     }
 
-    /** 把 POI Sheet 适配成内核所需的表格接口。 */
-    private class SheetTable(private val sheet: Sheet) : QuestionTableParser.Table {
-        override val lastRowIndex: Int get() = sheet.lastRowNum
+    /** 把二维字符串表格适配成内核所需的表格接口。 */
+    private class ListTable(private val rows: List<List<String>>) : QuestionTableParser.Table {
+        override val lastRowIndex: Int get() = rows.size - 1
 
         override fun row(rowIndex: Int): List<String>? {
-            val row = sheet.getRow(rowIndex) ?: return null
-            val last = row.lastCellNum.toInt()
-            if (last <= 0) return emptyList()
-            return (0 until last).map { c ->
-                val cell = row.getCell(c) ?: return@map ""
-                // POI 已正确解码单元格字符串（含中文），不要对其再做字符集转换，
-                // 否则会不可逆地损坏数据（中文无法映射为单字节 → 变成 '?'）。
-                when (cell.cellType) {
-                    org.apache.poi.ss.usermodel.CellType.STRING -> cell.stringCellValue
-                    org.apache.poi.ss.usermodel.CellType.BLANK -> ""
-                    else -> DATA_FORMATTER.formatCellValue(cell, null)
-                }.trim()
-            }
+            if (rowIndex !in rows.indices) return null
+            return rows[rowIndex].map { it.trim() }
         }
     }
-
-    private val DATA_FORMATTER = org.apache.poi.ss.usermodel.DataFormatter()
 }

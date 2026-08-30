@@ -47,7 +47,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 混淆 + 资源压缩，显著减小包体（APK 曾达 69MB，主要是 Apache POI 库撑起）
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -106,12 +108,9 @@ dependencies {
     // JSON serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // Excel / XLSX parsing (Apache POI)
-    // poi:5.3.0 同时提供 HSSF（.xls 老格式），无需额外依赖
-    implementation("org.apache.poi:poi-ooxml:5.3.0")
-    implementation("org.apache.poi:poi:5.3.0")
-    implementation("org.apache.xmlbeans:xmlbeans:5.2.0")
-    implementation("org.apache.commons:commons-compress:1.27.1")
+    // Excel / XLSX 读写：已改用自研轻量实现 logic/LightXlsx.kt（xlsx=ZIP+XML），
+    // 彻底移除 Apache POI（poi-ooxml/poi/xmlbeans/commons-compress），大幅减小包体。
+    // 仅支持 .xlsx，不再支持 .xls。
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

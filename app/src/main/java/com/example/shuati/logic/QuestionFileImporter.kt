@@ -12,21 +12,20 @@ import java.util.UUID
 /**
  * 题库文件导入统一入口：按扩展名 / MIME 分派到对应解析器。
  *
- * 支持的格式：.xlsx（Excel）、.xls（老版 Excel）、.csv（逗号分隔，UTF-8/GBK 自动探测）。
- * 三者的字段解析统一由 [QuestionTableParser] 完成，行为一致。
+ * 支持的格式：.xlsx（Excel 2007+）、.csv（逗号分隔，UTF-8/GBK 自动探测）。
+ * 不再支持老版 .xls（为减小包体已移除 HSSF）。
+ * 字段解析统一由 [QuestionTableParser] 完成，行为一致。
  */
 object QuestionFileImporter {
 
     enum class Format(val label: String, val extensions: List<String>) {
         XLSX("Excel (.xlsx)", listOf("xlsx")),
-        XLS("Excel 97-2003 (.xls)", listOf("xls")),
         CSV("CSV (.csv)", listOf("csv", "txt"))
     }
 
     /** 分享面板 / 文件选择器可接受的 MIME 类型。 */
     val SUPPORTED_MIME_TYPES: Array<String> = arrayOf(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
-        "application/vnd.ms-excel",                                          // xls / 通用
         "text/csv",
         "text/comma-separated-values",
         "text/plain"
@@ -42,7 +41,7 @@ object QuestionFileImporter {
     )
 
     class UnsupportedFormatException(val name: String?) :
-        IllegalArgumentException("不支持的文件格式${name?.let { "：$it" } ?: ""}，请选择 .xlsx / .xls / .csv 文件")
+        IllegalArgumentException("不支持的文件格式${name?.let { "：$it" } ?: ""}，请选择 .xlsx / .csv 文件")
 
     /** 根据 Uri 推断格式；无法识别返回 null（调用方据此报错）。 */
     fun detectFormat(context: Context, uri: Uri): Format? {
@@ -59,7 +58,7 @@ object QuestionFileImporter {
         return when {
             mime == null -> null
             mime.contains("spreadsheetml") -> Format.XLSX
-            mime.contains("ms-excel") -> Format.XLSX
+            mime.contains("ms-excel") -> null   // 老版 .xls 已不支持
             mime.contains("csv") || mime.contains("comma-separated") || mime.contains("text/plain") -> Format.CSV
             else -> null
         }
@@ -94,10 +93,6 @@ object QuestionFileImporter {
         return when (format) {
             Format.XLSX -> {
                 val r = ExcelParser.parseStream(bytes.inputStream(), bankName)
-                ImportResult(r.bank, r.totalRows, r.imported, r.skipped, format)
-            }
-            Format.XLS -> {
-                val r = ExcelParser.parseXls(bytes.inputStream(), bankName)
                 ImportResult(r.bank, r.totalRows, r.imported, r.skipped, format)
             }
             Format.CSV -> {

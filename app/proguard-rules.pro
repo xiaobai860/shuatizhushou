@@ -9,6 +9,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Apache POI
--dontwarn org.apache.poi.**
--keep class org.apache.poi.** { *; }
+# 依赖库可选类缺失（不影响运行，R8 建议忽略）
+# errorprone 注解：Tink 加密库（security-crypto）静态分析用，运行期不需要
+-dontwarn com.google.errorprone.annotations.**

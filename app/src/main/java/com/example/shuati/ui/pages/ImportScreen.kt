@@ -292,7 +292,7 @@ fun ImportScreen(navController: NavController) {
                             color = MaterialTheme.colorScheme.onSurface, maxLines = 2
                         )
                         Text(
-                            if (fileName.isEmpty()) "支持 .xlsx / .xls / .csv" else "来自系统文件管理器",
+                            if (fileName.isEmpty()) "支持 .xlsx / .csv" else "来自系统文件管理器",
                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
