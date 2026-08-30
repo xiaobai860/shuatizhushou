@@ -38,6 +38,19 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
+/** 题库列表的轻量统计（同步计算：纯内存分组，微秒级）。 */
+private data class BankStats(
+    val wrongCountByBank: Map<String, Int>,
+    val masteryTarget: Int,
+    val maxStreakByBank: Map<String, Int>
+)
+
+/** 题库列表的重量统计（后台线程计算：O(n²) 查重 + 疑错扫描）。 */
+private data class HeavyBankStats(
+    val dupCountByBank: Map<String, Int>,
+    val suspectCountByBank: Map<String, Int>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(navController: NavController) {
@@ -88,6 +101,45 @@ fun LibraryScreen(navController: NavController) {
         }
     }
     val hasSample = remember(banks) { banks.any { it.id.startsWith("sample_") } }
+
+    // 题库列表的统计信息：一次性批量计算，避免在 LazyColumn 的每个 item 内
+    // 重复做全量遍历（错题计数、掌握度、疑似错题）与 O(n²) 查重。
+    // 之前每个卡片都调用 findDuplicateGroups，N 个题库即 N 次查重，是列表卡顿的主因。
+
+    // 轻量统计（错题/掌握度）：纯内存分组，微秒级，可同步计算。
+    val syncStats = remember(banks) {
+        val wrongCount = repo.getWrongRecords().groupingBy { it.bankId }.eachCount()
+        val target = repo.getMasteryTarget()
+        val maxStreak = HashMap<String, Int>()
+        repo.getMasteryStreaks().forEach { (k, v) ->
+            val bankId = k.substringBefore("::")
+            if (v > (maxStreak[bankId] ?: 0)) maxStreak[bankId] = v
+        }
+        BankStats(wrongCount, target, maxStreak)
+    }
+    val wrongCountByBank = syncStats.wrongCountByBank
+    val masteryTarget = syncStats.masteryTarget
+    val maxStreakByBank = syncStats.maxStreakByBank
+
+    // 重量统计（查重 O(n²) + 疑似错题）：千题规模需数百毫秒，绝不能在主线程组合期执行
+    //（实测会让导航掉帧 30+）。放到 Default 线程池算，完成后刷新徽章；列表本体即时渲染。
+    var heavyStats by remember(banks) { mutableStateOf<HeavyBankStats?>(null) }
+    LaunchedEffect(banks) {
+        heavyStats = null
+        heavyStats = withContext(Dispatchers.Default) {
+            val threshold = repo.getDedupThreshold()
+            val dupCount = HashMap<String, Int>()
+            val suspectCount = HashMap<String, Int>()
+            banks.forEach { b ->
+                val groups = repo.findDuplicateGroups(b, threshold)
+                dupCount[b.id] = groups.sumOf { it.size } - groups.size
+                suspectCount[b.id] = b.questions.count { Scoring.checkIsSuspect(it) }
+            }
+            HeavyBankStats(dupCount, suspectCount)
+        }
+    }
+    val dupCountByBank = heavyStats?.dupCountByBank ?: emptyMap()
+    val suspectCountByBank = heavyStats?.suspectCountByBank ?: emptyMap()
 
     Scaffold(
 
@@ -186,20 +238,18 @@ fun LibraryScreen(navController: NavController) {
                 if (filtered.isEmpty()) {
                     item { EmptyState(if (banks.isEmpty()) "还没有题库，点右下角 + 导入" else "没有匹配的题库") }
                 }
-                items(filtered) { bank ->
+                items(filtered, key = { it.id }) { bank ->
                     val isSelected = selectedIds.contains(bank.id)
                     val progress = repo.getProgress(bank.id)
                     val completed = progress?.everCompleted ?: false
-                    val wrongCount = repo.getWrongRecords().count { it.bankId == bank.id }
-                    val target = repo.getMasteryTarget()
-                    val bankQuestions = bank.questions.map { it.id }.toSet()
-                    val maxStreak = repo.getMasteryStreaks()
-                        .filterKeys { it.startsWith("${bank.id}::") }
-                        .values.maxOrNull() ?: 0
+                    // 以下统计改为查预计算好的 Map（见上方 statsByBank），
+                    // 避免在 items 内对每个题库重复做全量遍历与 O(n²) 查重。
+                    val wrongCount = wrongCountByBank[bank.id] ?: 0
+                    val target = masteryTarget
+                    val maxStreak = maxStreakByBank[bank.id] ?: 0
                     val pct = if (target > 0) (maxStreak.toFloat() / target).coerceIn(0f, 1f) else 0f
-                    val dupGroups = repo.findDuplicateGroups(bank, repo.getDedupThreshold())
-                    val dupCount = dupGroups.sumOf { it.size } - dupGroups.size
-                    val suspectCount = bank.questions.count { Scoring.checkIsSuspect(it) }
+                    val dupCount = dupCountByBank[bank.id] ?: 0
+                    val suspectCount = suspectCountByBank[bank.id] ?: 0
 
                     CardBox(
                         onClick = {

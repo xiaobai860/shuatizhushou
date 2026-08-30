@@ -11,6 +11,7 @@ import com.example.shuati.logic.Scoring
 import com.example.shuati.model.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -51,17 +52,54 @@ class AppRepository(private val context: Context) {
         private val BACKUP_HISTORY_KEY = stringPreferencesKey("backup_history")
     }
 
-    // ─── 通用读写（类型安全，避免泛型擦除） ──────────────────────
-    private inline fun <reified T> readList(key: androidx.datastore.preferences.core.Preferences.Key<String>): List<T> =
-        runBlocking {
+    // ─── 内存缓存 ────────────────────────────────────────────────
+    //
+    // 背景：页面在组合体内频繁调用 getBanks() 等同步接口（14 个页面共 49 处），
+    // 每次调用都会 runBlocking 读 DataStore + JSON 反序列化全部题目（1030 题约 300ms），
+    // 重组时反复触发 → 主线程卡顿（实测掉帧 36%、90 百分位 300ms）。
+    //
+    // 方案：读取结果按 key 缓存。写入时「更新缓存 + 落盘」，而不是简单失效缓存，
+    // 避免下次读取又触发全量反序列化。
+
+    /** 缓存容器：key → 已反序列化的列表。 */
+    private val listCache = java.util.concurrent.ConcurrentHashMap<String, List<*>>()
+
+    @Suppress("UNCHECKED_CAST")
+    private inline fun <reified T> readListCached(
+        key: androidx.datastore.preferences.core.Preferences.Key<String>
+    ): List<T> {
+        listCache[key.name]?.let { return it as List<T> }
+        val loaded: List<T> = readListUncached(key)
+        listCache[key.name] = loaded
+        return loaded
+    }
+
+    private inline fun <reified T> readListUncached(
+        key: androidx.datastore.preferences.core.Preferences.Key<String>
+    ): List<T> =
+        runBlocking(Dispatchers.IO) {
             val raw = context.dataStore.data.first()[key] ?: return@runBlocking emptyList<T>()
             try {
                 json.decodeFromString(serializer(), raw)
             } catch (_: Exception) { emptyList() }
         }
 
-    private inline fun <reified T> writeList(key: androidx.datastore.preferences.core.Preferences.Key<String>, value: List<T>) =
-        runBlocking { context.dataStore.edit { it[key] = json.encodeToString(serializer(), value) } }
+    // ─── 通用读写（类型安全，避免泛型擦除） ──────────────────────
+    //
+    // 55 处写入调用全部经由这两个方法，因此把「缓存更新」内置在此处，
+    // 保证任何写入路径都会同步缓存，无需逐个调用点修改，也杜绝漏改导致的数据不一致。
+    private inline fun <reified T> readList(key: androidx.datastore.preferences.core.Preferences.Key<String>): List<T> =
+        readListCached(key)
+
+    private inline fun <reified T> writeList(key: androidx.datastore.preferences.core.Preferences.Key<String>, value: List<T>) {
+        listCache[key.name] = value                 // 先更新缓存，后续读取零成本
+        runBlocking(Dispatchers.IO) {                // 再落盘（IO 线程）
+            context.dataStore.edit { it[key] = json.encodeToString(serializer(), value) }
+        }
+    }
+
+    /** 清空缓存（仅在清空全部数据 / 还原备份后调用，避免读到旧数据）。 */
+    private fun clearCache() = listCache.clear()
 
     private fun readString(key: androidx.datastore.preferences.core.Preferences.Key<String>, default: String): String =
         runBlocking { context.dataStore.data.first()[key] ?: default }
@@ -70,6 +108,19 @@ class AppRepository(private val context: Context) {
 
     // ─── 题库 ────────────────────────────────────────────────────
     fun getBanks(): List<QuestionBank> = readList(BANKS_KEY)
+
+    /**
+     * 预热缓存：把常用列表提前读入内存。
+     * 由 Application 启动时在 IO 线程调用，使 UI 首次读取即命中缓存，
+     * 避免首帧后在主线程做全量 JSON 反序列化（千题规模约数百毫秒）。
+     */
+    fun warmUpCache() {
+        getBanks()
+        getWrongRecords()
+        getFavoriteRecords()
+        getHistoryRecords()
+        getStudyPlans()
+    }
     fun getBankById(bankId: String): QuestionBank? = getBanks().find { it.id == bankId }
     fun isBankNameTaken(name: String, excludeId: String? = null): Boolean =
         getBanks().any { it.name == name && it.id != excludeId }
@@ -591,6 +642,10 @@ class AppRepository(private val context: Context) {
             else if (readString(WRONG_ANSWERS_KEY, "").isBlank()) writeString(WRONG_ANSWERS_KEY, json.encodeToString(data.wrongAnswers))
         }
 
+        // 还原涉及多条未走 writeList 的写入（如 questionStats / wrongAnswers / 偏好设置），
+        // 统一清一次缓存，确保后续读取拿到的是还原后的数据而非旧缓存。
+        clearCache()
+
         return RestoreResult(imported, skipped)
     }
 
@@ -659,9 +714,10 @@ class AppRepository(private val context: Context) {
         id.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
 
     fun clearAllData() {
-        runBlocking {
+        runBlocking(Dispatchers.IO) {
             context.dataStore.edit { it.clear() }
         }
+        clearCache()   // 数据已全清，缓存必须同步清空，否则会读到旧数据
     }
 
     /**
