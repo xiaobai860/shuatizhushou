@@ -97,7 +97,9 @@ object QuestionTableParser {
 
         // 第一遍：统计非空 rawId 出现次数，识别重复 ID
         val rawIdCount = HashMap<String, Int>()
-        for ((_, cells) in table.rows()) {
+        for ((rowIdx, cells) in table.rows()) {
+            if (rowIdx == 0) continue
+            if (isNoteRow(cells, idIdx)) continue   // 模板「填写说明」行，忽略
             if (cells.all { it.isEmpty() }) continue
             val rawId = if (idIdx >= 0) cells.getOrNull(idIdx).orEmpty() else ""
             if (rawId.isNotEmpty()) rawIdCount[rawId] = (rawIdCount[rawId] ?: 0) + 1
@@ -108,6 +110,7 @@ object QuestionTableParser {
         val dupCounters = HashMap<String, Int>()
         for ((rowIndex, cells) in table.rows()) {
             if (rowIndex == 0) continue
+            if (isNoteRow(cells, idIdx)) continue   // 模板「填写说明」行，不解析为题目
             if (cells.all { it.isEmpty() }) continue
             fun cell(idx: Int): String = if (idx >= 0) cells.getOrNull(idx).orEmpty() else ""
 
@@ -181,6 +184,20 @@ object QuestionTableParser {
             )
             if (isIncomplete || isMissingId || isDupId) onSkip()
         }
+    }
+
+    /**
+     * 判断某行是否为模板自带的「填写说明」行（应整行忽略，不计入题目）。
+     *
+     * 判定只看**标记列**（题目ID 列，没有该列时退化为首列）是否等于/包含
+     * [ExcelWriter.TEMPLATE_NOTE_MARK]，避免过度宽松的猜测误杀真实数据行。
+     * 用户若手动删掉说明行，则不存在该标记，正常解析。
+     */
+    private fun isNoteRow(cells: List<String>, idIdx: Int): Boolean {
+        val mark = (if (idIdx >= 0) cells.getOrNull(idIdx) else cells.firstOrNull()).orEmpty().trim()
+        // 只认模板写入的完整标记（精确匹配/前缀匹配），不要用宽松的关键词（如 "填写说明"）：
+        // 否则题目 ID 或首列内容里含这些字样的真实题目会被误判为说明行而丢失。
+        return mark == ExcelWriter.TEMPLATE_NOTE_MARK || mark.startsWith(ExcelWriter.TEMPLATE_NOTE_MARK)
     }
 
     // ─── 格式 2：固定列（B/C/D/E/F/G），向后兼容 ────────────────────────────

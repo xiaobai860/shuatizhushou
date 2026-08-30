@@ -71,7 +71,8 @@ android {
             buildNumberFile.outputStream().use { buildProps.store(it, "Auto-incremented build number (versionCode)") }
         }
         versionCode = buildNumber
-        versionName = "2026083009"
+        // 2026-08-31 迭代：多题库学习计划、模板说明行、查重页多选范围、导入页检测字段重构
+        versionName = "2026083101"
         vectorDrawables {
             useSupportLibrary = true
         }

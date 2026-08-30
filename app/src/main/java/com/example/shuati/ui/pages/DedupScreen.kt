@@ -29,7 +29,9 @@ import com.example.shuati.ui.repository
 import com.example.shuati.model.Question
 import com.example.shuati.model.QuestionBank
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.shuati.ui.components.ScreenTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,12 +42,20 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // 查重模式：单题库 vs 跨题库（从题库列表直达时默认选中该题库）
-    var dedupMode by remember { mutableStateOf("single") }
-    // 相似度阈值 (20-95%，存为 Int)
-    var threshold by remember { mutableStateOf(repo.getDedupThreshold().toInt()) }
-    // 当前选中的题库（单题库模式下）
-    var selectedBankId by remember { mutableStateOf(initialBankId) }
+    // 查重范围：选中的题库 ID 集合（默认全部题库；从某题库直达时默认只选该题库）
+    var selectedBankIds by remember {
+        mutableStateOf<Set<String>>(
+            initialBankId?.let { setOf(it) } ?: banks.map { it.id }.toSet()
+        )
+    }
+    /** 是否处于「全部题库」模式（该状态下忽略 selectedBankIds 的具体勾选，始终覆盖所有题库） */
+    var selectAllBanks by remember { mutableStateOf(initialBankId == null) }
+    // 相似度阈值 (20-95%，存为 Int)。
+    // ⚠️ getDedupThreshold() 返回 0..1 的 Double，必须 ×100 再取整，
+    // 否则 0.85.toInt() = 0，滑块会错误地显示为「0%」（修复前就是这个 bug）。
+    var threshold by remember {
+        mutableStateOf((repo.getDedupThreshold() * 100).toInt().coerceIn(20, 95))
+    }
     // 批量选择
     var selectedGroupIdx by remember { mutableStateOf<Int?>(null) }
     var selectedQIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -58,44 +68,50 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
     val displayedGroups = if (showAllGroups) duplicateGroups else duplicateGroups.take(20)
 
     fun runDedup() {
+        val targetBanks = banks.filter { it.id in selectedBankIds }
+        if (targetBanks.isEmpty()) return
+        val th = threshold / 100.0
         isLoading = true
+        duplicateGroups = emptyList()
+        statsText = ""
         scope.launch {
-            val results = when (dedupMode) {
-                "cross" -> {
-                    // 跨题库查重
-                    val groups = repo.findDuplicateGroupsAcrossBanks(banks, threshold / 100.0)
-                    groups.map { groupIds ->
+            // 先让进度条渲染出来：查重是 O(n²) 的 CPU 密集计算，若直接在主线程算，
+            // isLoading=true 的重组会被阻塞，表现为「点击后卡顿数秒才出现进度条」。
+            // 让出一帧后再切到 Default 线程执行，进度条即可立即显示。
+            kotlinx.coroutines.delay(16)
+            val results = withContext(Dispatchers.Default) {
+                if (targetBanks.size == 1) {
+                    // 单题库查重
+                    val bank = targetBanks[0]
+                    repo.findDuplicateGroups(bank, th).map { groupIds ->
+                        groupIds.mapNotNull { qid ->
+                            bank.questions.firstOrNull { it.id == qid }?.let { bank.id to it }
+                        }
+                    }.filter { it.size > 1 }
+                } else {
+                    // 多题库查重（跨题库比对）
+                    repo.findDuplicateGroupsAcrossBanks(targetBanks, th).map { groupIds ->
                         // groupIds: List<Pair<bankId, questionId>>
                         groupIds.mapNotNull { (bid, qid) ->
-                            banks.find { b -> b.id == bid }?.questions?.firstOrNull { q -> q.id == qid }
+                            targetBanks.find { b -> b.id == bid }?.questions
+                                ?.firstOrNull { q -> q.id == qid }
                                 ?.let { bid to it }
                         }
                     }.filter { it.size > 1 }
                 }
-                else -> {
-                    // 单题库查重
-                    val bankId = selectedBankId ?: return@launch
-                    val bank = banks.find { b -> b.id == bankId }
-                    if (bank != null) {
-                        val groups = repo.findDuplicateGroups(bank, threshold.toDouble() / 100.0)
-                        groups.map { groupIds ->
-                            groupIds.mapNotNull { qid ->
-                                bank.questions.firstOrNull { it.id == qid }?.let { qid to it }
-                            }
-                        }.filter { it.size > 1 }
-                    } else emptyList()
-                }
             }
             duplicateGroups = results
-            statsText = "发现 ${results.size} 组重复题目（阈值 ${threshold}%）"
+            statsText = "发现 ${results.size} 组重复题目（阈值 $threshold%，范围：${targetBanks.size} 个题库）"
             isLoading = false
         }
     }
 
     Scaffold(
-
         containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets.navigationBars,
+        // ⚠️ 不要只设 navigationBars：那会覆盖 Scaffold 默认的 insets 处理，
+        // 使顶部状态栏 inset 被重复/错误地留白，表现为「头部上下出现空白区域」。
+        // 与 AppNavHost 保持一致——顶部栏自行 statusBarsPadding，此处统一用 0。
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             ScreenTopBar("查重检测", onBack = { navController.popBackStack() }, subtitle = "仅在同题型之间比对")
         }
@@ -113,43 +129,50 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 模式切换
-                    Row(
+                    // 查重范围：题库多选（含「全部题库」），自动换行展示全部题库
+                    Text("查重范围（可多选）", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         FilterChip(
-                            selected = dedupMode == "single",
-                            onClick = { dedupMode = "single" },
-                            label = { Text("单题库", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        )
-                        FilterChip(
-                            selected = dedupMode == "cross",
-                            onClick = { dedupMode = "cross" },
-                            label = { Text("跨题库", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.Filled.AllInclusive, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        )
-                    }
-
-                    // 单题库模式：选择题库
-                    if (dedupMode == "single" && banks.size > 1) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("选择题库：", fontSize = 13.sp)
-                            banks.forEach { bank ->
-                                FilterChip(
-                                    selected = selectedBankId == bank.id,
-                                    onClick = { selectedBankId = bank.id },
-                                    label = { Text(bank.name.take(8), fontSize = 11.sp) },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    }
-                                )
+                            selected = selectAllBanks,
+                            onClick = {
+                                selectAllBanks = true
+                                selectedBankIds = banks.map { it.id }.toSet()
+                            },
+                            label = { Text("全部题库", fontSize = 12.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.AllInclusive, contentDescription = null, modifier = Modifier.size(14.dp))
                             }
+                        )
+                        banks.forEach { bank ->
+                            val checked = selectAllBanks || bank.id in selectedBankIds
+                            FilterChip(
+                                selected = checked && !selectAllBanks,
+                                onClick = {
+                                    if (selectAllBanks) {
+                                        // 由「全部题库」切换为单选该题库
+                                        selectAllBanks = false
+                                        selectedBankIds = setOf(bank.id)
+                                    } else {
+                                        val next = if (bank.id in selectedBankIds) selectedBankIds - bank.id
+                                                   else selectedBankIds + bank.id
+                                        selectedBankIds = next
+                                        // 全部取消勾选时回退到「全部题库」
+                                        if (next.isEmpty()) {
+                                            selectAllBanks = true
+                                            selectedBankIds = banks.map { it.id }.toSet()
+                                        }
+                                    }
+                                },
+                                label = { Text(bank.name, fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Book, contentDescription = null, modifier = Modifier.size(14.dp))
+                                }
+                            )
                         }
                     }
 
@@ -168,6 +191,13 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                         )
                     }
 
+                    // 查重进行中：显式进度条（计算已切到后台线程，点击后即可立即看到）
+                    if (isLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("正在比对题目相似度，题库较大时请稍候…", fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
                     // 操作按钮
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -176,10 +206,12 @@ fun DedupScreen(navController: NavController, initialBankId: String? = null) {
                         Button(
                             onClick = { runDedup() },
                             modifier = Modifier.weight(1f),
-                            enabled = !isLoading && (dedupMode == "cross" || selectedBankId != null)
+                            enabled = !isLoading && (selectAllBanks || selectedBankIds.isNotEmpty())
                         ) {
                             if (isLoading) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text("查重中…")
                             } else {
                                 Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))

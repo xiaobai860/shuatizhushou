@@ -113,12 +113,32 @@ object ExcelWriter {
      */
     fun writeTemplate(out: OutputStream) {
         val header = headerFor(4)
+        // 第 2 行：每列的填写说明。首列写入固定标记 TEMPLATE_NOTE_MARK，
+        // 导入时 QuestionTableParser 检测到该标记即整行跳过（用户也可直接删掉该行）。
+        // ⚠️ 说明行必须放在「表头之后、数据之前」：解析器靠首行识别列名，
+        // 若把说明放首行会破坏表头识别。
+        val note = listOf(
+            TEMPLATE_NOTE_MARK,
+            "必填。单选/多选/判断/填空/简答",
+            "必填。题目正文",
+            "选项文本，按 A/B/C… 逐列填写",
+            "", "", "",
+            "必填。单选填 A/B；多选填 AB 或 A,B；判断填 正确/错误",
+            "答案解析，可留空",
+            "AI 解析，可留空",
+            "多个标签用 | 分隔，如 地理|中国",
+            "简单/中等/困难，留空=未设置",
+            "是/否。多空填空判定时是否忽略顺序"
+        )
         // 0题目ID 1题型 2题干 3选项A 4选项B 5选项C 6选项D 7正确答案 8解析 9AI解析 10标签 11难度 12不限顺序
         val example = listOf(
             listOf("q1", "单选", "下列哪一项是正确的？", "一", "二", "三", "四", "A", "解析示例", "", "标签1|标签2", "简单", "否"),
             listOf("q2", "判断", "判断题示例：地球是圆的。", "", "", "", "", "正确", "解析示例", "", "", "中等", "否"),
             listOf("q3", "填空", "中国的首都是____。", "", "", "", "", "北京", "", "", "", "困难", "否")
         )
-        LightXlsx.write(listOf(header) + example, out)
+        LightXlsx.write(listOf(header, note) + example, out)
     }
+
+    /** 模板「填写说明」行标记：导入解析器据此整行忽略，不计入题目。 */
+    const val TEMPLATE_NOTE_MARK = "填写说明（本行导入时自动忽略）"
 }

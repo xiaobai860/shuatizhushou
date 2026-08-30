@@ -75,6 +75,8 @@ fun ImportScreen(navController: NavController) {
     /** 预览期后台检测状态：null=计算中，>=0=已算出 */
     var previewDupCount by remember { mutableStateOf<Int?>(null) }
     var previewSuspectCount by remember { mutableStateOf<Int?>(null) }
+    /** 后台重复/疑错检测进行中：与解析共用同一条进度条，不单独显示新进度条 */
+    var analyzing by remember { mutableStateOf(false) }
 
     /** 统一的解析流程：支持单文件与多文件（分享导入） */
     fun analyze(uris: List<Uri>) {
@@ -293,12 +295,29 @@ fun ImportScreen(navController: NavController) {
                 // 解析预览
                 SectionTitle("解析预览", count = formatLabel.ifEmpty { "共 $totalRows 行" })
                 CardBox {
+                    // 三类检测指标互不重叠：
+                    // 检测到题目（有效题数） / 疑似重复（内容相近） / 疑似错题（答案或题型存疑）。
+                    // 不再单列「不完整」与「ID 重复」——它们是解析期跳过的行数（不计入题目数），
+                    // 已在下方提示说明；且原「ID 重复」恒为 0（无实际检测），与「疑似重复」语义重叠。
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        StatTile("$totalRows", "检测到题目", Modifier.weight(1f))
-                        StatTile("$skipped", "不完整", Modifier.weight(1f),
-                            valueColor = MaterialTheme.semantic.warning)
-                        StatTile("0", "ID 重复", Modifier.weight(1f),
-                            valueColor = MaterialTheme.semantic.error)
+                        StatTile("$imported", "检测到题目", Modifier.weight(1f))
+                        StatTile(
+                            previewDupCount?.toString() ?: "…", "疑似重复", Modifier.weight(1f),
+                            valueColor = MaterialTheme.semantic.warning
+                        )
+                        StatTile(
+                            previewSuspectCount?.toString() ?: "…", "疑似错题", Modifier.weight(1f),
+                            valueColor = MaterialTheme.semantic.error
+                        )
+                    }
+                    // 未计入题目数的跳过行说明
+                    if (skipped > 0) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "另有 $skipped 行因题干/答案为空或 ID 异常被跳过，未计入题目数",
+                            fontSize = 11.5.sp, lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     if (skipped > 0) {
                         Spacer(Modifier.height(10.dp))
@@ -429,6 +448,8 @@ fun ImportScreen(navController: NavController) {
 
 /** 底部「开始导入」按钮区高度：内容区底部预留该固定空间，避免按钮显隐导致内容跳动。 */
 private val importButtonAreaHeight = 76.dp
+
+
 
 /** 三步进度指示：1 选择文件 → 2 预览校验 → 3 导入 */
 @Composable
