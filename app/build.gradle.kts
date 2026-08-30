@@ -36,6 +36,14 @@ android {
         }
     }
 
+    packaging {
+        resources.excludes += setOf(
+            // kotlinx-coroutines 的调试探针（DebugProbesKt.bin）只应存在于 debug 构建，
+            // release 不应携带。同理排除其它可能的调试残留。
+            "DebugProbesKt.bin",
+        )
+    }
+
     defaultConfig {
         applicationId = "com.example.shuati"
         minSdk = 34
