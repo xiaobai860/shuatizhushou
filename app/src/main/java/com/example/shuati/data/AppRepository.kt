@@ -154,6 +154,20 @@ class AppRepository(private val context: Context) {
         return true
     }
 
+    /**
+     * 计算并持久化题库的重复题数（查重 v3）与疑似错题数。
+     * 导入预览期 / 题库管理页补算时由后台线程调用，结果随题库落盘；
+     * 管理页徽章直接读 QuestionBank.dupCount / suspectCount，进页面零计算。
+     */
+    fun computeAndStoreCounts(bankId: String): Pair<Int, Int>? {
+        val bank = getBanks().firstOrNull { it.id == bankId } ?: return null
+        val groups = findDuplicateGroups(bank, getDedupThreshold())
+        val dupCount = groups.sumOf { it.size } - groups.size
+        val suspectCount = bank.questions.count { com.example.shuati.logic.Scoring.checkIsSuspect(it) }
+        updateBank(bank.copy(dupCount = dupCount, suspectCount = suspectCount))
+        return dupCount to suspectCount
+    }
+
     /** 保存某题的 AI 解析（默认保存，覆盖旧值）。 */
     fun saveAiExplanation(bankId: String, questionId: String, ai: AiExplanation): Boolean {
         val bank = getBanks().firstOrNull { it.id == bankId } ?: return false
@@ -702,7 +716,8 @@ class AppRepository(private val context: Context) {
             if (xlsx != null) {
                 try {
                     val parsed = com.example.shuati.logic.ExcelParser.parseStream(java.io.ByteArrayInputStream(xlsx), b.name)
-                    b.copy(questions = parsed.bank.questions)
+                    // questions 被 Excel 重新编码替换，查重/疑错缓存不可信，置失效由管理页补算
+                    b.copy(questions = parsed.bank.questions, dupCount = -1, suspectCount = -1)
                 } catch (_: Exception) { b }
             } else b
         }
@@ -854,7 +869,13 @@ class AppRepository(private val context: Context) {
     fun deleteQuestions(bankId: String, ids: Set<String>) {
         val bank = getBankById(bankId) ?: return
         if (ids.isEmpty()) return
-        val updated = bank.copy(questions = bank.questions.filter { it.id !in ids }, updatedAt = System.currentTimeMillis())
+        val updated = bank.copy(
+            questions = bank.questions.filter { it.id !in ids },
+            updatedAt = System.currentTimeMillis(),
+            // 题目集合已变：查重与疑错缓存失效
+            dupCount = -1,
+            suspectCount = -1
+        )
         updateBank(updated)
     }
 }

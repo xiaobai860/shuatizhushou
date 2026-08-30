@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.logic.ExcelWriter
-import com.example.shuati.logic.Scoring
 import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
@@ -43,12 +42,6 @@ private data class BankStats(
     val wrongCountByBank: Map<String, Int>,
     val masteryTarget: Int,
     val maxStreakByBank: Map<String, Int>
-)
-
-/** 题库列表的重量统计（后台线程计算：O(n²) 查重 + 疑错扫描）。 */
-private data class HeavyBankStats(
-    val dupCountByBank: Map<String, Int>,
-    val suspectCountByBank: Map<String, Int>
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,26 +114,22 @@ fun LibraryScreen(navController: NavController) {
     val masteryTarget = syncStats.masteryTarget
     val maxStreakByBank = syncStats.maxStreakByBank
 
-    // 重量统计（查重 O(n²) + 疑似错题）：千题规模需数百毫秒，绝不能在主线程组合期执行
-    //（实测会让导航掉帧 30+）。放到 Default 线程池算，完成后刷新徽章；列表本体即时渲染。
-    var heavyStats by remember(banks) { mutableStateOf<HeavyBankStats?>(null) }
-    LaunchedEffect(banks) {
-        heavyStats = null
-        heavyStats = withContext(Dispatchers.Default) {
-            val threshold = repo.getDedupThreshold()
-            val dupCount = HashMap<String, Int>()
-            val suspectCount = HashMap<String, Int>()
-            banks.forEach { b ->
-                val groups = repo.findDuplicateGroups(b, threshold)
-                dupCount[b.id] = groups.sumOf { it.size } - groups.size
-                suspectCount[b.id] = b.questions.count { Scoring.checkIsSuspect(it) }
+    // 徽章数据全部来自题库持久化字段（导入时算好；题目增删改后置 -1）。
+    // 本页对「失效（-1）」的题库在进入时后台逐个补算并写回，一次只算一个，
+    // 避免集中跑 O(n²)；未失效的题库零计算。不进本页则永不触发检测。
+    var recomputedCount by remember { mutableStateOf(0) }   // 补算进度；变化触发重组刷新徽章
+    val staleBanks = banks.filter { it.dupCount < 0 || it.suspectCount < 0 }
+    if (staleBanks.isNotEmpty()) {
+        val staleKeys = staleBanks.map { it.id to it.updatedAt }
+        LaunchedEffect(staleKeys) {
+            for (bank in staleBanks) {
+                withContext(Dispatchers.Default) {
+                    repo.computeAndStoreCounts(bank.id)
+                }
+                recomputedCount++
             }
-            HeavyBankStats(dupCount, suspectCount)
         }
     }
-    val dupCountByBank = heavyStats?.dupCountByBank ?: emptyMap()
-    val suspectCountByBank = heavyStats?.suspectCountByBank ?: emptyMap()
-
     Scaffold(
 
         containerColor = MaterialTheme.colorScheme.background,
@@ -248,8 +237,10 @@ fun LibraryScreen(navController: NavController) {
                     val target = masteryTarget
                     val maxStreak = maxStreakByBank[bank.id] ?: 0
                     val pct = if (target > 0) (maxStreak.toFloat() / target).coerceIn(0f, 1f) else 0f
-                    val dupCount = dupCountByBank[bank.id] ?: 0
-                    val suspectCount = suspectCountByBank[bank.id] ?: 0
+                    // dupCount 为持久化字段（-1=补算中），读不到时显示 0 避免闪烁
+                    val dupCount = bank.dupCount.coerceAtLeast(0)
+                    // 补算完成后 updateBank 改写 banks 触发重组，此处自动读到新值；-1 期间显示 0 避免闪烁
+                    val suspectCount = bank.suspectCount.coerceAtLeast(0)
 
                     CardBox(
                         onClick = {

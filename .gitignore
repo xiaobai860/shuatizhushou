@@ -29,6 +29,9 @@ Thumbs.db
 *.aar
 output.json
 
+# —— Kotlin 编译器运行时产物（K2 官方推荐忽略：会话存活标记/守护进程日志等，纯本机瞬时文件） ——
+.kotlin/
+
 # —— 本地工作记忆（迁移代码仓库不需要） ——
 .codebuddy/
 build_log.txt

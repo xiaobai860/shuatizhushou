@@ -105,7 +105,13 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
     }
 
     fun updateBank(newQuestions: List<Question>, msg: String) {
-        val newBank = currentBank.copy(questions = newQuestions, updatedAt = System.currentTimeMillis())
+        val newBank = currentBank.copy(
+            questions = newQuestions,
+            updatedAt = System.currentTimeMillis(),
+            // 题目集合已变：查重与疑错缓存失效，进入题库管理页时后台补算
+            dupCount = -1,
+            suspectCount = -1
+        )
         repo.updateBank(newBank)
         scope.launch { snackbarHostState.showSnackbar(msg) }
     }

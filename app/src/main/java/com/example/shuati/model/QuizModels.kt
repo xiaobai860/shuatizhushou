@@ -55,7 +55,19 @@ data class QuestionBank(
     val questions: List<Question> = emptyList(),
     val aiHint: String? = null,                // 题库级默认定向提示（如「注册会计师考试」），AI 解析时带入
     val createdAt: Long = 0L,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    /**
+     * 重复题数量（查重算法 v3 结果的持久化缓存）。
+     * -1 = 尚未计算或已失效（题目增删后）；导入时计算并写回，
+     * 题库管理页直接读取显示徽章，进页面零计算。
+     * 失效后由题库管理页进入时后台补算。
+     */
+    val dupCount: Int = -1,
+    /**
+     * 疑似错题数量（Scoring.checkIsSuspect 扫描结果的持久化缓存）。
+     * 语义与 dupCount 相同：-1 = 未算/失效，导入时计算，失效后进管理页补算。
+     */
+    val suspectCount: Int = -1
 )
 
 /**

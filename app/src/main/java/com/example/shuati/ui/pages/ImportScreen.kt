@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.shuati.logic.ExcelWriter
 import com.example.shuati.logic.QuestionFileImporter
+import com.example.shuati.logic.Scoring
+import com.example.shuati.model.QuestionBank
 import com.example.shuati.ui.*
 import com.example.shuati.ui.components.CardBox
 import com.example.shuati.ui.components.ScreenTopBar
@@ -65,6 +67,11 @@ fun ImportScreen(navController: NavController) {
     var charsetLabel by remember { mutableStateOf<String?>(null) }
     /** 分享导入时为多个 Uri；普通选择时为单个 */
     var sharedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    /** 解析出的待导入题库；dupCount/suspectCount 在预览期由后台算好后回填 */
+    var pendingBank by remember { mutableStateOf<QuestionBank?>(null) }
+    /** 预览期后台检测状态：null=计算中，>=0=已算出 */
+    var previewDupCount by remember { mutableStateOf<Int?>(null) }
+    var previewSuspectCount by remember { mutableStateOf<Int?>(null) }
 
     /** 统一的解析流程：支持单文件与多文件（分享导入） */
     fun analyze(uris: List<Uri>) {
@@ -96,7 +103,21 @@ fun ImportScreen(navController: NavController) {
                 bankName = repo.generateUniqueBankName(
                     if (uris.size == 1) stripExt(names[0]) else "多文件导入${uris.size}个"
                 )
+                pendingBank = bank
+                previewDupCount = null
+                previewSuspectCount = null
                 status = "done"
+                // 预览期后台预计算查重 + 疑错检测（利用用户看预览/命名的时间，不阻塞导入）；
+                // 结果随题库持久化，题库管理页徽章直接读取，进页面零计算。
+                // 用户此后仅在增删改题目时使结果失效，进管理页补算。
+                withContext(Dispatchers.Default) {
+                    val groups = repo.findDuplicateGroups(bank, repo.getDedupThreshold())
+                    val dupCount = groups.sumOf { it.size } - groups.size
+                    val suspectCount = bank.questions.count { Scoring.checkIsSuspect(it) }
+                    pendingBank = bank.copy(dupCount = dupCount, suspectCount = suspectCount)
+                    previewDupCount = dupCount
+                    previewSuspectCount = suspectCount
+                }
             } catch (e: QuestionFileImporter.UnsupportedFormatException) {
                 message = e.message ?: "不支持的文件格式"
                 status = "error"
@@ -182,20 +203,9 @@ fun ImportScreen(navController: NavController) {
                                 !(repo.isBankNameTaken(bankName.trim()) && bankName.trim() != parsedName),
                             onClick = {
                                 scope.launch {
-                                    val uris = sharedUris.ifEmpty {
-                                        listOfNotNull(selectedUri)
-                                    }
                                     val name = bankName.trim()
-                                    val results = uris.map {
-                                        QuestionFileImporter.importUri(context, it, name)
-                                    }
-                                    val bank = if (results.size == 1) {
-                                        results[0].bank.copy(name = name)
-                                    } else {
-                                        QuestionFileImporter.mergeBanks(
-                                            results.map { it.bank }, name
-                                        )
-                                    }
+                                    // 直接使用预览期解析好的题库（含后台算好的 dupCount），无需重新读文件
+                                    val bank = pendingBank?.copy(name = name) ?: return@launch
                                     val r = repo.addBank(bank)
                                     if (r.success) {
                                         navController.popBackStack()
@@ -341,6 +351,28 @@ fun ImportScreen(navController: NavController) {
                         Text("文件编码：$it", fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    // 重复题 + 疑错预检（后台计算，完成后显示；结果随导入持久化，供题库管理页徽章直接读取）
+                    Spacer(Modifier.height(8.dp))
+                    val dupText = when (val d = previewDupCount) {
+                        null -> "重复题检测中…"
+                        else -> if (d > 0) "发现 $d 道疑似重复题（可导入后在「查重检测」中处理）"
+                                else "未发现重复题"
+                    }
+                    Text(
+                        dupText, fontSize = 11.5.sp,
+                        color = if ((previewDupCount ?: 0) > 0) MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val suspectText = when (val s = previewSuspectCount) {
+                        null -> "疑似错题检测中…"
+                        else -> if (s > 0) "发现 $s 道疑似错题（可在编辑页「疑似错题」页签修正）"
+                                else "未发现疑似错题"
+                    }
+                    Text(
+                        suspectText, fontSize = 11.5.sp,
+                        color = if ((previewSuspectCount ?: 0) > 0) MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     // 题型分布
                     if (typeCounts.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
