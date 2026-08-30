@@ -63,6 +63,8 @@ class AppRepository(private val context: Context) {
 
     /** 缓存容器：key → 已反序列化的列表。 */
     private val listCache = java.util.concurrent.ConcurrentHashMap<String, List<*>>()
+    /** 缓存容器：key → 已反序列化的 Map（仅对已知高频热点 key 使用，如 MASTERY_STREAKS_KEY）。 */
+    private val stringCache = java.util.concurrent.ConcurrentHashMap<String, Any?>()
 
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> readListCached(
@@ -99,7 +101,7 @@ class AppRepository(private val context: Context) {
     }
 
     /** 清空缓存（仅在清空全部数据 / 还原备份后调用，避免读到旧数据）。 */
-    private fun clearCache() = listCache.clear()
+    private fun clearCache() { listCache.clear(); stringCache.clear() }
 
     private fun readString(key: androidx.datastore.preferences.core.Preferences.Key<String>, default: String): String =
         runBlocking { context.dataStore.data.first()[key] ?: default }
@@ -252,16 +254,26 @@ class AppRepository(private val context: Context) {
 
     // ─── 掌握度 streak ───────────────────────────────────────────
     fun getMasteryTarget(): Int {
+        stringCache[MASTERY_TARGET_KEY.name]?.let { return it as Int }
         val v = readString(MASTERY_TARGET_KEY, "3")
-        return v.toIntOrNull()?.takeIf { it > 0 } ?: 3
+        val n = v.toIntOrNull()?.takeIf { it > 0 } ?: 3
+        stringCache[MASTERY_TARGET_KEY.name] = n
+        return n
     }
-    fun saveMasteryTarget(n: Int) = writeString(MASTERY_TARGET_KEY, n.toString())
+    fun saveMasteryTarget(n: Int) {
+        writeString(MASTERY_TARGET_KEY, n.toString())
+        stringCache[MASTERY_TARGET_KEY.name] = n
+    }
 
     // ─── 每题正确率统计（key = "bankId::questionId"，value = "correct,total"） ──
+    @Suppress("UNCHECKED_CAST")
     fun getQuestionStats(): Map<String, String> {
+        stringCache[QUESTION_STATS_KEY.name]?.let { return it as Map<String, String> }
         val raw = readString(QUESTION_STATS_KEY, "")
-        if (raw.isBlank()) return emptyMap()
-        return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+        val map = if (raw.isBlank()) emptyMap()
+            else runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+        stringCache[QUESTION_STATS_KEY.name] = map
+        return map
     }
     fun recordQuestionResult(bankId: String, questionId: String, correct: Boolean) {
         val key = "$bankId::$questionId"
@@ -271,23 +283,20 @@ class AppRepository(private val context: Context) {
         } ?: (0 to 0)
         stats[key] = "${if (correct) c + 1 else c},${t + 1}"
         writeString(QUESTION_STATS_KEY, json.encodeToString(stats))
+        stringCache[QUESTION_STATS_KEY.name] = stats
     }
 
     // ─── 错误历史（key = "bankId::questionId"，value = 用户答错的选择列表） ──
-    fun getWrongAnswers(bankId: String, questionId: String): List<String> {
-        val raw = readString(WRONG_ANSWERS_KEY, "")
-        if (raw.isBlank()) return emptyList()
-        val map = runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
-        return map["$bankId::$questionId"] ?: emptyList()
-    }
+    fun getWrongAnswers(bankId: String, questionId: String): List<String> =
+        getAllWrongAnswers()["$bankId::$questionId"] ?: emptyList()
     fun recordWrongAnswer(bankId: String, questionId: String, userAnswer: String) {
         if (userAnswer.isBlank()) return
-        val raw = readString(WRONG_ANSWERS_KEY, "")
-        val map = (runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())).toMutableMap()
+        val map = getAllWrongAnswers().toMutableMap()
         val key = "$bankId::$questionId"
         val list = (map[key] ?: emptyList()) + userAnswer
         map[key] = list.takeLast(8) // 最多保留 8 条历史
         writeString(WRONG_ANSWERS_KEY, json.encodeToString(map))
+        stringCache[WRONG_ANSWERS_KEY.name] = map
     }
 
     // ─── 备份历史（最近导出时间戳列表） ──────────────────────────
@@ -321,11 +330,26 @@ class AppRepository(private val context: Context) {
         writeString(THEME_MODE_KEY, mode)
     }
 
+    /**
+     * 返回当前掌握度 streak map。结果来自 [stringCache]，避免每次调用都读磁盘 + JSON 解析。
+     * 写入时必须同步调用 [updateMasteryStreaksCache] 以保持缓存一致。
+     */
     fun getMasteryStreaks(): Map<String, Int> {
+        stringCache[MASTERY_STREAKS_KEY.name]?.let {
+            @Suppress("UNCHECKED_CAST")
+            return it as Map<String, Int>
+        }
         val raw = readString(MASTERY_STREAKS_KEY, "{}")
-        return try { json.decodeFromString(raw) } catch (_: Exception) { emptyMap() }
+        val map = try { json.decodeFromString<Map<String, Int>>(raw) } catch (_: Exception) { emptyMap() }
+        stringCache[MASTERY_STREAKS_KEY.name] = map
+        return map
     }
-    private fun saveMasteryStreaks(map: Map<String, Int>) = writeString(MASTERY_STREAKS_KEY, json.encodeToString(map))
+
+    /** 写入 streaks map 后同步更新缓存，保证后续 [getMasteryStreaks] 命中。 */
+    private fun saveMasteryStreaks(map: Map<String, Int>) {
+        writeString(MASTERY_STREAKS_KEY, json.encodeToString(map))
+        stringCache[MASTERY_STREAKS_KEY.name] = map
+    }
     fun getStreak(bankId: String, questionId: String): Int = getMasteryStreaks()["$bankId::$questionId"] ?: 0
     fun incrementStreak(bankId: String, questionId: String): Int {
         val key = "$bankId::$questionId"
@@ -521,11 +545,15 @@ class AppRepository(private val context: Context) {
     }
 
     // ─── 备份 / 还原 ─────────────────────────────────────────────
-    /** 读取完整错答历史 Map（key="bankId::questionId"） */
+    /** 读取完整错答历史 Map（key="bankId::questionId"）。结果走 [stringCache]，写入方须同步更新缓存。 */
+    @Suppress("UNCHECKED_CAST")
     fun getAllWrongAnswers(): Map<String, List<String>> {
+        stringCache[WRONG_ANSWERS_KEY.name]?.let { return it as Map<String, List<String>> }
         val raw = readString(WRONG_ANSWERS_KEY, "")
-        if (raw.isBlank()) return emptyMap()
-        return runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
+        val map = if (raw.isBlank()) emptyMap()
+            else runCatching { json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
+        stringCache[WRONG_ANSWERS_KEY.name] = map
+        return map
     }
 
     fun buildBackupData(): BackupData {
@@ -767,9 +795,13 @@ class AppRepository(private val context: Context) {
         }
         writeList(PROGRESS_KEY, progress)
         // 6) 每题正确率统计 / 掌握度 / 错答历史（key 形如 sample_::qid）
-        writeString(QUESTION_STATS_KEY, json.encodeToString(getQuestionStats().filterKeys { !it.startsWith("$prefix::") }))
+        val keptStats = getQuestionStats().filterKeys { !it.startsWith("$prefix::") }
+        writeString(QUESTION_STATS_KEY, json.encodeToString(keptStats))
+        stringCache[QUESTION_STATS_KEY.name] = keptStats
         saveMasteryStreaks(getMasteryStreaks().filterKeys { !it.startsWith("$prefix::") })
-        writeString(WRONG_ANSWERS_KEY, json.encodeToString(getAllWrongAnswers().filterKeys { !it.startsWith("$prefix::") }))
+        val keptWrong = getAllWrongAnswers().filterKeys { !it.startsWith("$prefix::") }
+        writeString(WRONG_ANSWERS_KEY, json.encodeToString(keptWrong))
+        stringCache[WRONG_ANSWERS_KEY.name] = keptWrong
         return removedCount
     }
 

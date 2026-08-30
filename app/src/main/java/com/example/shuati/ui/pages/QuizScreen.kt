@@ -109,9 +109,10 @@ fun QuizScreen(
     // 连续点击重新生成时，旧任务的 finally 可能晚于新任务执行，若无守卫会把新任务的流式输出清空。
     var aiGen by remember { mutableStateOf(0) }
     var aiRegenerating by remember { mutableStateOf(false) }
-    // 多供应商模型选择器状态（默认上次使用）
-    var aiProviders by remember { mutableStateOf(AiConfigStore.loadAll(context).providers) }
-    var aiSelProvider by remember { mutableStateOf(AiConfigStore.loadAll(context).selectedProviderId) }
+    // 多供应商模型选择器状态（默认上次使用）。loadAll 每次都从加密存储读，只调一次避免重复 IO
+    val aiSettings = remember { AiConfigStore.loadAll(context) }
+    var aiProviders by remember { mutableStateOf(aiSettings.providers) }
+    var aiSelProvider by remember { mutableStateOf(aiSettings.selectedProviderId) }
 
     // 模式选择：showModeSelect=true 时先让用户选 顺序/随机/浏览
     var selMode by remember { mutableStateOf<String?>(if (showModeSelect) null else mode) }

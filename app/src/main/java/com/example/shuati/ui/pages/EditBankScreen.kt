@@ -157,9 +157,17 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    // getMasteryTarget 有缓存，但避免在每道题的 lambda 里重复调用，提出循环只取一次
+                    val target = repo.getMasteryTarget()
+                    val streaks = remember(allQuestions, target) {
+                        val s = HashMap<String, Int>(allQuestions.size)
+                        allQuestions.forEach { q -> s[q.id] = repo.getStreak(bankId!!, q.id) }
+                        s
+                    }
+                    val mastered = allQuestions.count { streaks[it.id]!! >= target }
                     StatItem("总题数", allQuestions.size.toString())
-                    StatItem("已掌握", allQuestions.count { q -> repo.getStreak(bankId!!, q.id) >= repo.getMasteryTarget() }.toString())
-                    StatItem("待学习", allQuestions.count { q -> repo.getStreak(bankId!!, q.id) < repo.getMasteryTarget() }.toString())
+                    StatItem("已掌握", mastered.toString())
+                    StatItem("待学习", (allQuestions.size - mastered).toString())
                 }
             }
 

@@ -35,7 +35,9 @@ import com.example.shuati.ui.components.SectionTitle
 import com.example.shuati.ui.components.SoftButton
 import com.example.shuati.ui.theme.ShuatiSpacing
 import com.example.shuati.ui.theme.semantic
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,11 +59,15 @@ fun BackupScreen(navController: NavController) {
         val uri = result.data?.data
         if (uri != null) {
             scope.launch {
+                status = "正在导出…"
                 try {
-                    context.contentResolver.openOutputStream(uri)?.use { os ->
-                        os.write(repo.exportBackupZip())
+                    // 全量 ZIP 压缩 + Excel 生成 + 文件写入均移到 IO 线程，避免大题库时冻结 UI
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(repo.exportBackupZip())
+                        }
+                        repo.recordBackup(System.currentTimeMillis())
                     }
-                    repo.recordBackup(System.currentTimeMillis())
                     backupHistory = repo.getBackupHistory()
                     status = "备份已导出（ZIP，含题库 Excel）"
                 } catch (e: Exception) { status = "导出失败：${e.message}" }
@@ -76,17 +82,23 @@ fun BackupScreen(navController: NavController) {
         val uri = result.data?.data
         if (uri != null) {
             scope.launch {
+                status = "正在还原…"
                 try {
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
-                    // 仅支持新版 ZIP 备份（以 "PK\x03\x04" 魔数开头）
-                    val isZip = bytes.size >= 4 &&
-                            bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte() &&
-                            bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()
-                    if (!isZip) { status = "请选择 .zip 备份文件"; return@launch }
-                    val r = repo.restoreBackupFromZip(bytes, overwrite)
-                    status = if (r.message != null) r.message
-                    else "还原完成：导入 ${r.imported} 个题库" +
-                            (if (r.skipped > 0) "，跳过 ${r.skipped} 个重名" else "")
+                    // 文件读取 + ZIP 解压 + Excel 解析 + 多次落盘均移到 IO 线程，避免还原大备份时冻结 UI
+                    val r = withContext(Dispatchers.IO) {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                        // 仅支持新版 ZIP 备份（以 "PK\x03\x04" 魔数开头）
+                        val isZip = bytes.size >= 4 &&
+                                bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte() &&
+                                bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()
+                        if (!isZip) null else repo.restoreBackupFromZip(bytes, overwrite)
+                    }
+                    status = when {
+                        r == null -> "请选择 .zip 备份文件"
+                        r.message != null -> r.message
+                        else -> "还原完成：导入 ${r.imported} 个题库" +
+                                (if (r.skipped > 0) "，跳过 ${r.skipped} 个重名" else "")
+                    }
                 } catch (e: Exception) { status = "还原失败：${e.message}" }
             }
         }
