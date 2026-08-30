@@ -1245,6 +1245,9 @@ private fun AnswerPanel(
             aiStreamingText != null || aiReasoningText != null -> {
                 val reasonText = aiReasoningText
                 val answerText = aiStreamingText
+                // 普通模型（无思考区）沿用改动前的 6dp，保证该路径零变化；
+                // 有思考区时，正文与思考区之间留 8dp 做视觉分隔
+                val answerTopGap = if (reasonText.isNullOrBlank()) 6.dp else 8.dp
                 Spacer(Modifier.height(10.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1263,7 +1266,7 @@ private fun AnswerPanel(
                             AiThinkingBlock(text = reasonText, caret = answerText.isNullOrBlank())
                         }
                         if (answerText != null && answerText.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(answerTopGap))
                             Text(answerText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
                         }
                         Spacer(Modifier.height(8.dp))
