@@ -1,16 +1,16 @@
 package com.example.shuati.ui.pages
 
 import android.widget.Toast
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,21 +42,18 @@ fun AiSettingsScreen(navController: NavController) {
     var customPrompt by remember { mutableStateOf(initial.customPrompt.ifBlank { AiExplainService.SYSTEM_PROMPT }) }
     var reusePrev by remember { mutableStateOf(initial.reusePrevOnRegen) }
 
-    var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     // 各板块独立的结果提示（大模型 / 搜索 / 模板），分别显示在各自板块下方，不再统一堆到页面底部
     var llmStatus by remember { mutableStateOf("") }
     var searchStatus by remember { mutableStateOf("") }
     var promptStatus by remember { mutableStateOf("") }
 
-    // 供应商切换 / 重命名 / 删除 弹窗状态
-    var showProviderPicker by remember { mutableStateOf(false) }
+    // 重命名 / 删除 弹窗状态
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf("") }
     var renameValue by remember { mutableStateOf("") }
 
-    fun activeCfg() = AiConfigStore.activeConfig(ctx)
     fun updProvider(p: AiProviderConfig) {
         providers = providers.map { if (it.id == p.id) p else it }
     }
@@ -111,8 +108,22 @@ fun AiSettingsScreen(navController: NavController) {
             )
 
             // ── 模块 A：大模型配置（多供应商） ──────────────────────────
-            Text("大模型配置（多供应商）", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "大模型配置（多供应商）", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    fontSize = 14.sp, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                // 添加按钮：置于标题右侧
+                TextButton(onClick = { addProvider() }) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("添加", fontSize = 13.sp)
+                }
+            }
             ModuleCard {
                 Text(
                     "可保存多家供应商，分别拉取模型列表后多选保存；解析页可随时切换供应商与模型，默认使用上次选中的模型。",
@@ -121,37 +132,31 @@ fun AiSettingsScreen(navController: NavController) {
 
                 val current = providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull()
 
-                // 头部：模型选择 + 添加
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("选择模型配置", fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        ProviderSelector(
-                            providerName = current?.name ?: "（未配置供应商）",
-                            onClick = { if (providers.isNotEmpty()) showProviderPicker = true }
-                        )
-                    }
-                    TextButton(onClick = { addProvider() }) {
-                        Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("添加", fontSize = 13.sp)
-                    }
-                }
+                // 模型配置切换：点击输入框向下展开下拉列表（与搜索引擎同交互），非模态弹窗
+                ProviderSelector(
+                    providerName = current?.name ?: "（未配置供应商）",
+                    providers = providers,
+                    selectedId = selectedProviderId,
+                    onSelect = { selectedProviderId = it }
+                )
 
-                // 操作按钮：重命名 / 删除 / 测试连接
+                // 操作按钮：重命名 / 删除 / 测试连接（单行不换行不裁切：收窄按钮内边距）
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { renameTarget = current?.id ?: ""; renameValue = current?.name ?: ""; showRenameDialog = true },
-                        enabled = current != null, modifier = Modifier.weight(1f)
-                    ) { Text("重命名", fontSize = 12.sp) }
+                        enabled = current != null, modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) { Text("重命名", fontSize = 12.sp, maxLines = 1) }
                     OutlinedButton(
                         onClick = { if (current != null) showDeleteConfirm = true },
-                        enabled = current != null, modifier = Modifier.weight(1f)
-                    ) { Text("删除", fontSize = 12.sp) }
+                        enabled = current != null, modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) { Text("删除", fontSize = 12.sp, maxLines = 1) }
                     OutlinedButton(
                         onClick = { testCurrent() },
-                        enabled = current != null, modifier = Modifier.weight(1f)
-                    ) { Text("测试连接", fontSize = 12.sp) }
+                        enabled = current != null, modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) { Text("测试连接", fontSize = 12.sp, maxLines = 1) }
                 }
 
                 // 当前选中供应商配置板块
@@ -184,40 +189,6 @@ fun AiSettingsScreen(navController: NavController) {
                 }
             }
 
-            // 供应商切换弹窗
-            if (showProviderPicker) {
-                AlertDialog(
-                    onDismissRequest = { showProviderPicker = false },
-                    title = { Text("选择模型配置") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            providers.forEach { p ->
-                                val isSel = p.id == selectedProviderId
-                                val content: @Composable () -> Unit = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(p.name.ifBlank { "未命名供应商" },
-                                            fontSize = 14.sp, modifier = Modifier.weight(1f))
-                                        if (isSel) Text("✓", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
-                                    }
-                                }
-                                if (isSel) {
-                                    ListItem(headlineContent = content)
-                                } else {
-                                    ListItem(
-                                        headlineContent = content,
-                                        modifier = Modifier.clickable {
-                                            selectedProviderId = p.id
-                                            showProviderPicker = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = { TextButton(onClick = { showProviderPicker = false }) { Text("关闭") } }
-                )
-            }
-
             // 重命名弹窗
             if (showRenameDialog) {
                 AlertDialog(
@@ -233,7 +204,6 @@ fun AiSettingsScreen(navController: NavController) {
                         TextButton(onClick = {
                             if (renameValue.isNotBlank()) {
                                 providers = providers.map { if (it.id == renameTarget) it.copy(name = renameValue.trim()) else it }
-                                status = "已重命名"
                             }
                             showRenameDialog = false
                         }) { Text("确定") }
@@ -255,7 +225,6 @@ fun AiSettingsScreen(navController: NavController) {
                             if (id != null) {
                                 providers = providers.filter { it.id != id }
                                 if (selectedProviderId == id) selectedProviderId = providers.firstOrNull()?.id ?: ""
-                                status = "已删除供应商"
                             }
                             showDeleteConfirm = false
                         }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -351,7 +320,7 @@ fun AiSettingsScreen(navController: NavController) {
                 fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
             ModuleCard {
                 Text(
-                    "即内置的「题目解析 skill」系统提示。修改它可定制解析风格与结构（如更偏医学 / 法律 / 编程考法）；留空或点「恢复默认模板」即使用内置模板。",
+                    "即内置的「题目解析 skill」系统提示。修改它可定制解析风格与结构（如更偏医学 / 法律 / 编程考法）；留空或点「恢复默认」即使用内置模板。",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(
@@ -388,33 +357,24 @@ fun AiSettingsScreen(navController: NavController) {
                         modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)
                     )
                 }
-                TextButton(onClick = { customPrompt = AiExplainService.SYSTEM_PROMPT }) {
-                    Text("恢复默认模板", fontSize = 12.5.sp)
+                // 恢复默认 与 保存配置 并列
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = { customPrompt = AiExplainService.SYSTEM_PROMPT },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("恢复默认", fontSize = 12.5.sp, maxLines = 1) }
+                    Button(
+                        onClick = {
+                            AiConfigStore.savePrompt(ctx, customPrompt)
+                            Toast.makeText(ctx, "已保存解析模板", Toast.LENGTH_SHORT).show()
+                            promptStatus = "解析模板已保存（${customPrompt.length} 字）"
+                        },
+                        enabled = !busy, modifier = Modifier.weight(1f)
+                    ) { Text("保存配置", fontSize = 12.5.sp, maxLines = 1) }
                 }
-                Button(
-                    onClick = {
-                        AiConfigStore.savePrompt(ctx, customPrompt)
-                        Toast.makeText(ctx, "已保存解析模板", Toast.LENGTH_SHORT).show()
-                        promptStatus = "解析模板已保存（${customPrompt.length} 字）"
-                    },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth()
-                ) { Text("保存配置") }
                 if (promptStatus.isNotBlank()) {
                     Text(promptStatus, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
-            }
-
-            val net = activeCfg()
-            val netStatus = when {
-                AiConfigStore.searchEnabled(net) -> "联网搜索：已启用（${searchLabel(searchProvider)}）"
-                net.llmBaseUrl.isNotBlank() && net.llmApiKey.isNotBlank() -> "联网搜索：依赖模型内置（若支持）"
-                else -> "尚未配置大模型"
-            }
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(netStatus, fontSize = 12.5.sp, modifier = Modifier.padding(10.dp))
             }
         }
     }
@@ -432,23 +392,48 @@ private fun ModuleCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** 头部模型选择器：只读文本框 + 下拉箭头，点击弹出供应商选择列表。 */
+/** 头部模型配置选择器：点击输入框向下展开下拉列表（与搜索引擎选择同交互）。 */
 @Composable
-private fun ProviderSelector(providerName: String, onClick: () -> Unit) {
-    OutlinedTextField(
-        value = providerName,
-        onValueChange = {},
-        readOnly = true,
-        singleLine = true,
-        trailingIcon = {
-            IconButton(onClick = onClick) {
-                Icon(Icons.Filled.ArrowDropDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ProviderSelector(
+    providerName: String,
+    providers: List<AiProviderConfig>,
+    selectedId: String,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (providers.isNotEmpty()) expanded = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = providerName,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text("选择模型配置") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            providers.forEach { p ->
+                DropdownMenuItem(
+                    text = { Text(p.name.ifBlank { "未命名供应商" }, maxLines = 1) },
+                    trailingIcon = {
+                        if (p.id == selectedId) {
+                            Text("✓", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                        }
+                    },
+                    onClick = {
+                        onSelect(p.id)
+                        expanded = false
+                    }
+                )
             }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = true) { onClick() }
-    )
+        }
+    }
 }
 
 /**
@@ -468,7 +453,7 @@ private fun ProviderConfigCard(
     var modelName by remember(provider.id) { mutableStateOf(provider.selectedModel) }
     var fetched by remember(provider.id) { mutableStateOf<List<String>>(emptyList()) }
     var picked by remember(provider.id) { mutableStateOf(provider.models.toSet()) }
-    var showModelPicker by remember(provider.id) { mutableStateOf(false) }
+    var menuExpanded by remember(provider.id) { mutableStateOf(false) }
     var fetching by remember(provider.id) { mutableStateOf(false) }
 
     Surface(
@@ -491,8 +476,32 @@ private fun ProviderConfigCard(
                 visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()
             )
 
-            // 模型名称输入框 + 拉取模型按钮
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 模型名称输入框：拉取按钮内嵌在输入框最右侧，点击向下展开模型列表（可多选）
+            fun fetchModels(onDone: () -> Unit) {
+                if (baseUrl.isBlank() || apiKey.isBlank()) {
+                    setStatus("请先填写供应商链接与 API 密钥"); return
+                }
+                fetching = true
+                scope.launch {
+                    runCatching { AiExplainService.listModels(AiConfig(baseUrl.trim(), apiKey.trim(), "")) }
+                        .onSuccess { list ->
+                            fetched = list
+                            picked = if (provider.models.isNotEmpty()) provider.models.toSet() else list.toSet()
+                            setStatus("已拉取 ${list.size} 个模型，可多选保存")
+                            onDone()
+                        }
+                        .onFailure { setStatus("拉取失败：${it.message ?: it}") }
+                    fetching = false
+                }
+            }
+            fun applyPicked() {
+                val modelList = picked.toList().sorted()
+                val first = modelList.firstOrNull() ?: ""
+                onUpdate(provider.copy(models = modelList, selectedModel = modelName.trim().takeIf { it.isNotBlank() && modelList.contains(it.trim()) } ?: first))
+                if (modelName.trim() !in modelList) modelName = first
+            }
+
+            Box {
                 OutlinedTextField(
                     value = modelName, onValueChange = {
                         modelName = it
@@ -500,27 +509,65 @@ private fun ProviderConfigCard(
                     },
                     label = { Text("模型名称") },
                     placeholder = { Text("如 gpt-4o / deepseek-chat", color = MaterialTheme.colorScheme.outline) },
-                    singleLine = true, modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        if (baseUrl.isBlank() || apiKey.isBlank()) { setStatus("请先填写供应商链接与 API 密钥"); return@OutlinedButton }
-                        fetching = true
-                        scope.launch {
-                            runCatching { AiExplainService.listModels(AiConfig(baseUrl.trim(), apiKey.trim(), "")) }
-                                .onSuccess { list ->
-                                    fetched = list
-                                    picked = if (provider.models.isNotEmpty()) provider.models.toSet() else list.toSet()
-                                    showModelPicker = true
-                                    setStatus("已拉取 ${list.size} 个模型，勾选后保存")
-                                }
-                                .onFailure { setStatus("拉取失败：${it.message ?: it}") }
-                            fetching = false
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        // 输入框最右侧的拉取按钮：首次点击拉取模型列表，之后点击切换下拉展开
+                        IconButton(onClick = {
+                            if (menuExpanded) {
+                                applyPicked(); menuExpanded = false
+                            } else if (fetched.isNotEmpty()) {
+                                menuExpanded = true
+                            } else {
+                                fetchModels { menuExpanded = true }
+                            }
+                        }) {
+                            if (fetching) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    if (menuExpanded) Icons.Filled.ArrowDropUp else Icons.Filled.Download,
+                                    contentDescription = "拉取模型列表",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                    },
-                    enabled = !fetching
-                ) { Text(if (fetching) "拉取中…" else "拉取", fontSize = 12.5.sp) }
+                    }
+                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { applyPicked(); menuExpanded = false },
+                    modifier = Modifier.widthIn(max = 340.dp)
+                ) {
+                    val models = fetched.ifEmpty { provider.models }
+                    if (models.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("未拉到可用模型，点此重新拉取", fontSize = 13.sp) },
+                            onClick = { fetchModels { menuExpanded = true } }
+                        )
+                    } else {
+                        models.forEach { m ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = m in picked, onCheckedChange = null)
+                                        Text(m, fontSize = 13.5.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                                    }
+                                },
+                                onClick = {
+                                    picked = picked.toMutableSet().apply {
+                                        if (contains(m)) remove(m) else add(m)
+                                    }
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("完成（${picked.size} 个已选）", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary) },
+                            onClick = { applyPicked(); menuExpanded = false }
+                        )
+                    }
+                }
             }
 
             // 已选模型摘要
@@ -529,55 +576,6 @@ private fun ProviderConfigCard(
                 Text(picked.sorted().joinToString("、"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
-
-    // 模型多选弹窗
-    if (showModelPicker) {
-        AlertDialog(
-            onDismissRequest = { showModelPicker = false },
-            title = { Text("选择模型（可多选）") },
-            text = {
-                Column(
-                    Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    val models = fetched.ifEmpty { provider.models }
-                    if (models.isEmpty()) {
-                        Text("未拉到可用模型，可稍后重试。", fontSize = 13.sp)
-                    } else {
-                        models.forEach { m ->
-                            val checked = m in picked
-                            val toggle: @Composable () -> Unit = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = {
-                                            picked = picked.toMutableSet().apply {
-                                                if (contains(m)) remove(m) else add(m)
-                                            }
-                                        }
-                                    )
-                                    Text(m, fontSize = 13.5.sp)
-                                }
-                            }
-                            ListItem(headlineContent = toggle)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val modelList = picked.toList().sorted()
-                    // 把选中的第一个自动填入模型名称输入框（用户也可继续手动修改）
-                    val first = modelList.firstOrNull() ?: ""
-                    onUpdate(provider.copy(models = modelList, selectedModel = modelName.takeIf { it in modelList } ?: first))
-                    modelName = modelName.takeIf { it in modelList } ?: first
-                    showModelPicker = false
-                    setStatus("已保存 ${modelList.size} 个模型")
-                }) { Text("确定") }
-            },
-            dismissButton = { TextButton(onClick = { showModelPicker = false }) { Text("取消") } }
-        )
     }
 }
 
