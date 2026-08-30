@@ -3,6 +3,10 @@ package com.example.shuati.ui
 import android.app.Activity
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +62,9 @@ private val navItems = listOf(
  * 底部导航（2026 版）：surface 底 + secondaryContainer 胶囊指示器。
  * 高 72dp，图标 22dp，标签 11sp；仅顶层四页显示，其余详情页全屏隐藏。
  */
+/** 底部导航高度：顶层页内容底部需留出该空间，避免被叠加的 tab 遮挡。 */
+private val bottomBarHeight = 72.dp
+
 @Composable
 private fun SoftBottomBar(
     currentRoute: String?,
@@ -65,7 +73,7 @@ private fun SoftBottomBar(
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
-        modifier = Modifier.height(72.dp)
+        modifier = Modifier.height(bottomBarHeight)
     ) {
         navItems.forEach { item ->
             val selected = currentRoute == item.route
@@ -108,40 +116,39 @@ fun AppNavHost(sharedImport: SharedImportIntent? = null) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
-    // 系统分享面板进入：携带分享文件直达导入页（解析由 ImportScreen 自动进行）
-    LaunchedEffect(sharedImport) {
-        if (sharedImport != null) {
-            SharedImportIntent.holder.value = sharedImport
+    // 系统分享面板进入：观察 holder 状态导航到导入页。
+    // 用 holder（而非参数 sharedImport）是为了同时覆盖两条路径：
+    //  - 冷启动分享：MainActivity.onCreate 解析 intent 并写入 holder
+    //  - 应用已在前台时再次分享：MainActivity.onNewIntent 写入 holder
+    // 若只用参数 sharedImport，LaunchedEffect 仅在首次组合时有值，前台二次分享会因 key 不变而无反应。
+    val pendingShare = SharedImportIntent.holder.value
+    LaunchedEffect(pendingShare) {
+        if (pendingShare != null) {
             navController.navigate(Routes.IMPORT)
         }
     }
     // 应用由 MainActivity.setContent 提供组合上下文，context 必为 Activity
     val activity = LocalContext.current as Activity
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        // 顶层导航壳：不自己加系统栏 padding（各页面顶部栏自行 statusBarsPadding，
-        // 底部导航 NavigationBar 自行处理导航栏 inset），避免状态栏高度被算两次导致标题下移
-        contentWindowInsets = WindowInsets(0),
-        bottomBar = {
-            if (currentRoute in topLevelRoutes) {
-                SoftBottomBar(
-                    currentRoute = currentRoute,
-                    onTabSelected = { route ->
-                        navController.navigate(route) {
-                            topLevelOptions(navController.graph.findStartDestination().id)
-                        }
-                    }
-                )
-            }
-        }
-    ) { padding ->
+    // 分层布局：子页面（NavHost）在底层全屏，底部导航在上层叠加淡入淡出。
+    // ⚠️ 不用 Scaffold(bottomBar=...)：那样 bottomBar 出现/消失会改变 content 的 padding，
+    // 返回时会把子页面内容「向上顶出」。改为 Box 叠加后两者互不影响，tab 直接淡入覆盖。
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                // 顶层页底部留出导航栏空间，避免内容被叠加的 tab 遮挡；
+                // 子页面不留（全屏显示，tab 隐藏时也不会有空白）
+                .then(
+                    if (currentRoute in topLevelRoutes) Modifier.padding(bottom = bottomBarHeight)
+                    else Modifier
+                )
         ) {
 
             // 顶部四页
@@ -247,6 +254,23 @@ fun AppNavHost(sharedImport: SharedImportIntent? = null) {
                 )
             }
         }
+
+        // 上层：底部导航叠加在子页面之上，淡入淡出（不与内容争空间，返回时不会顶出子页面按钮）
+        AnimatedVisibility(
+            visible = currentRoute in topLevelRoutes,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            SoftBottomBar(
+                currentRoute = currentRoute,
+                onTabSelected = { route ->
+                    navController.navigate(route) {
+                        topLevelOptions()
+                    }
+                }
+            )
+        }
     }
 
     // 底部导航页（首页/学习/题库/我的）按返回键直接退出应用
@@ -256,9 +280,15 @@ fun AppNavHost(sharedImport: SharedImportIntent? = null) {
     }
 }
 
-/** 顶层 Tab 切换：保留各 Tab 状态，避免重复进栈 */
-private fun NavOptionsBuilder.topLevelOptions(startId: Int) {
-    popUpTo(startId) { saveState = true }
+/**
+ * 顶层 Tab 切换：清空返回栈，保证底部四页切换后栈中**只剩当前页一个条目**。
+ *
+ * ⚠️ 不要用官方推荐写法 `popUpTo(startId){ saveState=true } + restoreState=true`：
+ * 那样切换后栈里是 [首页, 当前Tab] 两个条目，按返回键会先 pop 回「首页」（需按两次才退出），
+ * 与「底部四页任意一页按一次返回直接退出」的预期不符。
+ * popUpTo(0) 会清空整个返回栈，BackHandler 因此能稳定地在顶层页直接 finish。
+ */
+private fun NavOptionsBuilder.topLevelOptions() {
+    popUpTo(0)
     launchSingleTop = true
-    restoreState = true
 }

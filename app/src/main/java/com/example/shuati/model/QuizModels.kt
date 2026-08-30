@@ -55,7 +55,10 @@ data class QuestionBank(
     val questions: List<Question> = emptyList(),
     val aiHint: String? = null,                // 题库级默认定向提示（如「注册会计师考试」），AI 解析时带入
     val createdAt: Long = 0L,
+    /** 题库内容的最后修改时间（编辑/导入题目时更新）。 */
     val updatedAt: Long = 0L,
+    /** 最后一次打开该题库的时间（用于首页「最近题库」排序，0 = 从未打开）。 */
+    val lastOpenedAt: Long = 0L,
     /**
      * 重复题数量（查重算法 v3 结果的持久化缓存）。
      * -1 = 尚未计算或已失效（题目增删后）；导入时计算并写回，
@@ -148,7 +151,10 @@ data class StudyPlan(
     val isAllBanks: Boolean = false,  // 是否覆盖全部题库
     val enabled: Boolean = true,
     val archived: Boolean = false,
-    val createdAt: Long = 0L
+    val createdAt: Long = 0L,
+    // 多题库组合：非空时该计划覆盖这些题库（bankId 取第一个作为主题库，用于兼容旧逻辑）。
+    // 为空表示沿用 bankId / isAllBanks 的旧语义（单题库或全部题库）。
+    val bankIds: List<String> = emptyList()
 )
 
 /**

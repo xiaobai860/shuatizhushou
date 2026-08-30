@@ -41,8 +41,9 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     var records by remember { mutableStateOf(emptyList<WrongRecord>()) }
     var masteryTarget by remember { mutableStateOf(repo.getMasteryTarget()) }
     var showTarget by remember { mutableStateOf(false) }
-    var selectedTag by remember { mutableStateOf<String?>(null) }
-    var selectedType by remember { mutableStateOf<com.example.shuati.model.QuestionType?>(null) }
+    // 筛选支持多选组合：空集合 = 不过滤（全部）；题型与标签均为「命中任一即保留」
+    var selectedTags by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTypes by remember { mutableStateOf<Set<com.example.shuati.model.QuestionType>>(emptySet()) }
     var showClearDialog by remember { mutableStateOf(false) }
     val allTags = remember { repo.getAllTags() }
     val banks = remember { repo.getBanks() }
@@ -73,10 +74,18 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     )
 
     fun getFilteredRecords(): List<WrongRecord> {
-        var list = if (selectedTag == null) records
-        else records.filter { rec -> (rec.question?.tags ?: emptyList()).contains(selectedTag) }
-        if (selectedType != null) {
-            list = list.filter { it.question?.type == selectedType }
+        var list = records
+        // 标签多选：命中任一个已选标签即保留
+        if (selectedTags.isNotEmpty()) {
+            list = list.filter { rec ->
+                (rec.question?.tags ?: emptyList()).any { it in selectedTags }
+            }
+        }
+        // 题型多选：命中任一个已选题型即保留
+        if (selectedTypes.isNotEmpty()) {
+            list = list.filter { rec ->
+                (rec.question?.type ?: com.example.shuati.model.QuestionType.single) in selectedTypes
+            }
         }
         return list
     }
@@ -115,8 +124,12 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                 typeFilters.forEach { (t, label) ->
                     val count = if (t == null) records.size else (typeCounts[t] ?: 0)
                     FilterChip(
-                        selected = selectedType == t,
-                        onClick = { selectedType = if (selectedType == t) null else t },
+                        selected = if (t == null) selectedTypes.isEmpty() else t in selectedTypes,
+                        onClick = {
+                            selectedTypes = if (t == null) emptySet()
+                            else if (t in selectedTypes) selectedTypes - t
+                            else selectedTypes + t
+                        },
                         label = { Text("$label $count") }
                     )
                 }
@@ -130,14 +143,16 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
                         .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
                 ) {
                     FilterChip(
-                        selected = selectedTag == null,
-                        onClick = { selectedTag = null },
+                        selected = selectedTags.isEmpty(),
+                        onClick = { selectedTags = emptySet() },
                         label = { Text("全部") }
                     )
                     allTags.forEach { tag ->
                         FilterChip(
-                            selected = selectedTag == tag,
-                            onClick = { selectedTag = if (selectedTag == tag) null else tag },
+                            selected = tag in selectedTags,
+                            onClick = {
+                                selectedTags = if (tag in selectedTags) selectedTags - tag else selectedTags + tag
+                            },
                             label = { Text(tag) }
                         )
                     }
@@ -343,7 +358,8 @@ fun WrongsScreen(navController: NavController, bankId: String? = null) {
     }
 
     if (showClearDialog) {
-        val isAll = selectedTag == null
+        // 无任何筛选（题型与标签均未选）= 清空全部；否则只清当前筛选出的记录
+        val isAll = selectedTags.isEmpty() && selectedTypes.isEmpty()
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("清空错题") },

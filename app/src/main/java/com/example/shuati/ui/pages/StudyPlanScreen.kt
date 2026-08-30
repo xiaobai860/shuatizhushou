@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -316,14 +317,18 @@ private fun PlanCard(
                 onClick = {
                     if (isExpired || !bankExists) return@SoftButton
                     val ids = buildSessionIds(repo, plan)
+                    // 会话记录统一存复合键「bankId::题目ID」，支持单个或多个题库的计划
+                    val storedIds = ids.map { (bid, qid) -> "$bid::$qid" }
                     if (pp == null || pp.sessionDate != today) {
-                        repo.initPlanSession(plan.id, ids, today, pp?.answeredIds ?: emptyList())
+                        repo.initPlanSession(plan.id, storedIds, today, pp?.answeredIds ?: emptyList())
                     }
                     val startIdx = if (isStudy) pp?.sessionAnsweredCount ?: 0 else pp?.sessionBrowseIndex ?: 0
-                    val firstId = ids.getOrNull(startIdx)
-                    if (firstId != null) {
+                    val firstPair = ids.getOrNull(startIdx)
+                    if (firstPair != null) {
                         val realMode = if (isStudy) plan.orderType else "browse"
-                        val remainingIds = ids.subList(startIdx, ids.size).joinToString(",") { "$plan.bankId::$it" }
+                        // 每道题带上自己的题库ID，保证跨题库也能正确定位
+                        val remainingIds = ids.subList(startIdx, ids.size)
+                            .joinToString(",") { (bid, qid) -> "$bid::$qid" }
                         navController.navigate("${Routes.QUIZ}?bankId=${plan.bankId}&mode=$realMode&source=plan&planId=${plan.id}&questionIds=$remainingIds")
                     }
                 },
@@ -403,12 +408,28 @@ private fun PunchCalendar(plan: StudyPlan, pp: com.example.shuati.model.PlanProg
     }
 }
 
-private fun buildSessionIds(repo: com.example.shuati.data.AppRepository, plan: StudyPlan): List<String> {
-    val bank = repo.getBankById(plan.bankId) ?: return emptyList()
-    val remaining = bank.questions.filter { !(repo.getPlanProgress(plan.id)?.answeredIds?.contains(it.id) ?: false) }
-    val pool = if (remaining.isEmpty()) bank.questions else remaining
+/**
+ * 构建本次会话的题目列表，返回 (题库ID, 题目ID) 对。
+ * 计划覆盖 bankIds 指定的所有题库（单个或多个题库均用同一套逻辑）。
+ */
+private fun buildSessionIds(
+    repo: com.example.shuati.data.AppRepository,
+    plan: StudyPlan
+): List<Pair<String, String>> {
+    val answered = repo.getPlanProgress(plan.id)?.answeredIds ?: emptyList()
+    val targetBanks = plan.bankIds.mapNotNull { repo.getBankById(it) }
+    if (targetBanks.isEmpty()) return emptyList()
+
+    // 未答题目优先；全部答完则回到全量（进入下一轮）
+    val remaining = targetBanks.flatMap { b ->
+        b.questions.filter { it.id !in answered }.map { b.id to it.id }
+    }
+    val pool = if (remaining.isEmpty()) {
+        targetBanks.flatMap { b -> b.questions.map { b.id to it.id } }
+    } else remaining
+
     val shuffled = if (plan.orderType == "random") pool.shuffled() else pool
-    return shuffled.take(plan.dailyCount).map { it.id }
+    return shuffled.take(plan.dailyCount)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -421,14 +442,21 @@ private fun PlanEditDialog(
 ) {
     val banks = remember { repo.getBanks() }
     var title by remember { mutableStateOf(initial?.title ?: "") }
-    var selectedBankId by remember { mutableStateOf(initial?.bankId ?: "") }
+    // 题库选择支持多选组合：空集合 = 全部题库；非空 = 仅这些题库
+    var selectedBankIds by remember {
+        mutableStateOf<Set<String>>(
+            initial?.bankIds?.takeIf { it.isNotEmpty() }?.toSet()
+                ?: initial?.bankId?.takeIf { it.isNotBlank() }?.let { setOf(it) }
+                ?: emptySet()
+        )
+    }
     var dailyCount by remember { mutableStateOf((initial?.dailyCount ?: 10).toString()) }
     var cycleDays by remember { mutableStateOf((initial?.cycleDays ?: 7).toString()) }
     var mode by remember { mutableStateOf(initial?.mode ?: "study") }
     var orderType by remember { mutableStateOf(initial?.orderType ?: "sequence") }
     var startDate by remember { mutableStateOf(initial?.startDate ?: dateFmt.format(Date())) }
     var endDate by remember { mutableStateOf(initial?.endDate ?: "") }
-    var bankExpanded by remember { mutableStateOf(false) }
+
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
     val startState = rememberDatePickerState(
@@ -439,9 +467,9 @@ private fun PlanEditDialog(
             if (endDate.isNotBlank()) dateFmt.parse(endDate)?.time else dateFmt.parse(startDate)?.time
         }.getOrNull() ?: System.currentTimeMillis()
     )
-    // 每日题量上限 = 所选择题库的题目数（全部题库则为所有题库题目数之和）
-    val selectedMax = if (selectedBankId.isEmpty()) banks.sumOf { it.questions.size }
-    else (repo.getBankById(selectedBankId)?.questions?.size ?: 0)
+    // 每日题量上限 = 所选题库题目数之和（未选=全部题库）
+    val selectedMax = if (selectedBankIds.isEmpty()) banks.sumOf { it.questions.size }
+    else selectedBankIds.sumOf { repo.getBankById(it)?.questions?.size ?: 0 }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -450,32 +478,31 @@ private fun PlanEditDialog(
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(title, { title = it }, label = { Text("计划名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                // 全部题库选项
-                FilterChip(
-                    selected = selectedBankId.isEmpty(),
-                    onClick = { selectedBankId = "" },
-                    label = { Text("全部题库") },
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                if (banks.isNotEmpty()) {
-                    ExposedDropdownMenuBox(bankExpanded, { bankExpanded = !bankExpanded }) {
-                        OutlinedTextField(
-                            if (selectedBankId.isEmpty()) "全部题库" else (banks.find { it.id == selectedBankId }?.name ?: "选择题库"),
-                            {}, readOnly = true,
-                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankExpanded) }
+                // 题库选择：支持多选组合，「全部题库」= 清空选择
+                Text("题库（可多选）", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedBankIds.isEmpty(),
+                        onClick = { selectedBankIds = emptySet() },
+                        label = { Text("全部题库") }
+                    )
+                    banks.forEach { b ->
+                        FilterChip(
+                            selected = b.id in selectedBankIds,
+                            onClick = {
+                                selectedBankIds = if (b.id in selectedBankIds) selectedBankIds - b.id
+                                else selectedBankIds + b.id
+                            },
+                            label = { Text("${b.name}（${b.questions.size}）") }
                         )
-                        ExposedDropdownMenu(bankExpanded, { bankExpanded = false }) {
-                            banks.forEach { b ->
-                                DropdownMenuItem(text = { Text(b.name) },
-                                    onClick = { selectedBankId = b.id; bankExpanded = false })
-                            }
-                        }
                     }
                 }
                 OutlinedTextField(dailyCount, { dailyCount = it.filter { c -> c.isDigit() } },
                     label = { Text("每日题量") }, singleLine = true,
-                    supportingText = { Text("最多 $selectedMax 题（所选${if (selectedBankId.isEmpty()) "全部" else ""}题库题目数）") },
+                    supportingText = { Text("最多 $selectedMax 题（已选 ${if (selectedBankIds.isEmpty()) "全部" else selectedBankIds.size} 个题库，共 $selectedMax 题）") },
                     modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(cycleDays, { cycleDays = it.filter { c -> c.isDigit() } },
                     label = { Text("每轮天数") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -499,52 +526,36 @@ private fun PlanEditDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                if (selectedBankId.isEmpty() && banks.isNotEmpty()) {
-                    // 全部题库：用第一个可用题库作为占位
-                    val bank = banks.first()
-                    val plan = StudyPlan(
-                        id = initial?.id ?: UUID.randomUUID().toString(),
-                        title = title.trim(),
-                        bankId = bank.id,
-                        bankName = bank.name,
-                        totalQuestions = bank.questions.size,
-                        dailyCount = (dailyCount.toIntOrNull() ?: 1).coerceIn(1, if (selectedMax > 1) selectedMax else 1),
-                        mode = mode,
-                        orderType = orderType,
-                        startDate = startDate,
-                        endDate = endDate.ifBlank { null },
-                        cycleDays = cycleDays.toIntOrNull() ?: 7,
-                        isAllBanks = true,
-                        enabled = initial?.enabled ?: true,
-                        archived = initial?.archived ?: false,
-                        createdAt = initial?.createdAt ?: System.currentTimeMillis()
-                    )
-                    repo.saveStudyPlan(plan)
-                    onSaved()
-                } else {
-                    val bank = repo.getBankById(selectedBankId)
-                    if (bank != null && title.isNotBlank()) {
-                        val plan = StudyPlan(
-                            id = initial?.id ?: UUID.randomUUID().toString(),
-                            title = title.trim(),
-                            bankId = bank.id,
-                            bankName = bank.name,
-                            totalQuestions = bank.questions.size,
-                            dailyCount = (dailyCount.toIntOrNull() ?: 1).coerceIn(1, if (selectedMax > 1) selectedMax else 1),
-                            mode = mode,
-                            orderType = orderType,
-                            startDate = startDate,
-                            endDate = endDate.ifBlank { null },
-                        cycleDays = cycleDays.toIntOrNull() ?: 7,
-                        isAllBanks = false,
-                            enabled = initial?.enabled ?: true,
-                            archived = initial?.archived ?: false,
-                            createdAt = initial?.createdAt ?: System.currentTimeMillis()
-                        )
-                        repo.saveStudyPlan(plan)
-                        onSaved()
-                    }
-                }
+                if (title.isBlank()) return@TextButton
+                // 未选 = 全部题库（沿用旧语义，用第一个题库作占位）；选中 1 个 = 单题库；选多个 = 多题库组合
+                val picked = selectedBankIds.mapNotNull { repo.getBankById(it) }
+                val isAll = selectedBankIds.isEmpty()
+                val targetBanks = if (isAll) banks else picked
+                if (targetBanks.isEmpty()) return@TextButton
+
+                val primary = targetBanks.first()
+                val total = targetBanks.sumOf { it.questions.size }
+                val plan = StudyPlan(
+                    id = initial?.id ?: UUID.randomUUID().toString(),
+                    title = title.trim(),
+                    bankId = primary.id,
+                    bankName = if (isAll) "全部题库" else targetBanks.joinToString("、") { it.name },
+                    totalQuestions = total,
+                    dailyCount = (dailyCount.toIntOrNull() ?: 1).coerceIn(1, if (selectedMax > 1) selectedMax else 1),
+                    mode = mode,
+                    orderType = orderType,
+                    startDate = startDate,
+                    endDate = endDate.ifBlank { null },
+                    cycleDays = cycleDays.toIntOrNull() ?: 7,
+                    // isAllBanks 表示动态覆盖全部题库（含未来新增）；bankIds 始终写入当前覆盖的题库 ID 列表
+                    isAllBanks = isAll,
+                    bankIds = targetBanks.map { it.id },
+                    enabled = initial?.enabled ?: true,
+                    archived = initial?.archived ?: false,
+                    createdAt = initial?.createdAt ?: System.currentTimeMillis()
+                )
+                repo.saveStudyPlan(plan)
+                onSaved()
             }) { Text(if (initial == null) "创建" else "保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }

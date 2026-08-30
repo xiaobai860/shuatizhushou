@@ -4,6 +4,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -182,50 +185,23 @@ fun ImportScreen(navController: NavController) {
 
     val step = when (status) { "parsing", "done" -> 2; "error" -> 1; else -> 1 }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets.navigationBars,
-        topBar = {
-            ScreenTopBar("导入题库", onBack = { navController.popBackStack() }, subtitle = "Excel · 模板下载")
-        },
-        bottomBar = {
-            if (status == "done") {
-                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 12.dp)
-                    ) {
-                        SoftButton(
-                            text = "开始导入 $imported 题",
-                            icon = Icons.Filled.Upload,
-                            enabled = bankName.isNotBlank() &&
-                                !(repo.isBankNameTaken(bankName.trim()) && bankName.trim() != parsedName),
-                            onClick = {
-                                scope.launch {
-                                    val name = bankName.trim()
-                                    // 直接使用预览期解析好的题库（含后台算好的 dupCount），无需重新读文件
-                                    val bank = pendingBank?.copy(name = name) ?: return@launch
-                                    val r = repo.addBank(bank)
-                                    if (r.success) {
-                                        navController.popBackStack()
-                                        navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}")
-                                    } else {
-                                        message = r.message ?: "导入失败"
-                                        status = "error"
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
+    // 分层布局：内容区（Scaffold）在底层，底部「开始导入」按钮叠加在上层淡入淡出。
+    // ⚠️ 不用 Scaffold(bottomBar=...)：按钮随 status 显隐会改变 content 的 padding，
+    // 滚动到底部时内容会被顶得跳动。改为 Box 叠加后两者互不影响。
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets.navigationBars,
+            topBar = {
+                ScreenTopBar("导入题库", onBack = { navController.popBackStack() }, subtitle = "Excel · 模板下载")
             }
-        }
-    ) { padding ->
+        ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // 底部为叠加的导入按钮预留固定空间（不随 status 变化，避免跳动）
+                .padding(bottom = importButtonAreaHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = ShuatiSpacing.PageHorizontal),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -408,8 +384,51 @@ fun ImportScreen(navController: NavController) {
             }
             Spacer(Modifier.height(16.dp))
         }
+        }
+
+        // 上层：底部「开始导入」按钮叠加在内容之上，淡入淡出（不占 padding，不会顶动内容）
+        AnimatedVisibility(
+            visible = status == "done",
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    SoftButton(
+                        text = "开始导入 $imported 题",
+                        icon = Icons.Filled.Upload,
+                        enabled = bankName.isNotBlank() &&
+                            !(repo.isBankNameTaken(bankName.trim()) && bankName.trim() != parsedName),
+                        onClick = {
+                            scope.launch {
+                                val name = bankName.trim()
+                                // 直接使用预览期解析好的题库（含后台算好的 dupCount），无需重新读文件
+                                val bank = pendingBank?.copy(name = name) ?: return@launch
+                                val r = repo.addBank(bank)
+                                if (r.success) {
+                                    navController.popBackStack()
+                                    navController.navigate("${Routes.EDIT_BANK}?bankId=${bank.id}")
+                                } else {
+                                    message = r.message ?: "导入失败"
+                                    status = "error"
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
     }
 }
+
+/** 底部「开始导入」按钮区高度：内容区底部预留该固定空间，避免按钮显隐导致内容跳动。 */
+private val importButtonAreaHeight = 76.dp
 
 /** 三步进度指示：1 选择文件 → 2 预览校验 → 3 导入 */
 @Composable

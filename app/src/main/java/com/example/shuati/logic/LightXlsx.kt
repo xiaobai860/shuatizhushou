@@ -148,7 +148,13 @@ object LightXlsx {
 
     private fun parseXml(bytes: ByteArray): org.w3c.dom.Document {
         val factory = DocumentBuilderFactory.newInstance()
-        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        // 防外部 DTD 加载的 feature 在 Android（Apache Harmony 的 DocumentBuilderFactory）上不支持，
+        // setFeature 会直接抛异常。这里 try-catch 忽略：Android 本就不加载外部 DTD，无需该特性。
+        try {
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        } catch (_: Exception) {
+            // JVM 单测环境可设置；Android 不支持时忽略
+        }
         factory.isNamespaceAware = true
         return factory.newDocumentBuilder().parse(bytes.inputStream())
     }

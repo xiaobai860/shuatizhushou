@@ -59,6 +59,11 @@ fun EditBankScreen(navController: NavController, bankId: String?, editQuestionId
         return
     }
 
+    // 记录打开时间，供首页「最近题库」排序
+    LaunchedEffect(bankId) {
+        if (bankId != null) repo.markBankOpened(bankId)
+    }
+
     // 分页状态
     var displayCount by remember { mutableStateOf(ITEMS_PER_PAGE) }
     val allQuestions = currentBank.questions

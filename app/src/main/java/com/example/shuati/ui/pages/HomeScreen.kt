@@ -173,7 +173,7 @@ fun HomeScreen(navController: NavController) {
             if (banks.isEmpty()) {
                 item { EmptyState("还没有题库，去「导入题库」添加吧") }
             } else {
-                items(banks.sortedByDescending { it.updatedAt }.take(3)) { bank ->
+                items(repo.getRecentBanks(3)) { bank ->
                     val progress = repo.getProgress(bank.id)
                     val answered = progress?.answeredIds?.size ?: 0
                     val total = bank.questions.size

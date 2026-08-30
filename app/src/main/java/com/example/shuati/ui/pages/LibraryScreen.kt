@@ -142,8 +142,13 @@ fun LibraryScreen(navController: NavController) {
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
+            // 统一两分支高度：加 statusBarsPadding + 固定 52dp（与 ScreenTopBar 一致）。
+            // 否则进入/退出多选模式时 topBar 高度变化会让下方列表整块上下跳动。
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(52.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {

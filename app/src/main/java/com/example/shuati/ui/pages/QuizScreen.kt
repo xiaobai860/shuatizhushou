@@ -152,14 +152,16 @@ fun QuizScreen(
     var skipIncomplete by remember { mutableStateOf(true) }
     // 模式选择页：当前选中的模式（卡片高亮），点「开始刷题」才真正进入
     var selectedMode by remember { mutableStateOf("sequence") }
-    // 题型筛选（按题型刷题，可选；null = 全部）
-    var filterType by remember { mutableStateOf<QuestionType?>(null) }
+    // 题型筛选（按题型刷题，可选；支持多选组合，空集合 = 全部题型）
+    var filterTypes by remember { mutableStateOf<Set<QuestionType>>(emptySet()) }
     // 选项乱序（仅选择类题型生效：每题选项重排，判分按正确答案，不影响对错）
     var shuffleOptions by remember { mutableStateOf(false) }
+    // 进度刷新版本号：清除进度后自增，触发模式选择页进度重新计算并立即刷新界面
+    var progressVersion by remember { mutableStateOf(0) }
 
     // 计算本次作答序列（含真实 bankId）
-    val queue = remember(bankId, selMode, source, planId, filterLocal, skipIncomplete, specifiedQuestions, filterType) {
-        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions, skipIncomplete, filterType)
+    val queue = remember(bankId, selMode, source, planId, filterLocal, skipIncomplete, specifiedQuestions, filterTypes) {
+        buildQueue(repo, bankId, selMode ?: "", source, planId, filterLocal, specifiedQuestions, skipIncomplete, filterTypes)
     }
 
     var index by remember { mutableStateOf(0) }
@@ -174,6 +176,11 @@ fun QuizScreen(
         aiError = null
         aiRegenerating = false
         aiBusy = false
+    }
+
+    // 记录打开时间，供首页「最近题库」排序（__all__ 不是真实题库，不记录）
+    LaunchedEffect(bankId) {
+        if (bankId != null && bankId != "__all__") repo.markBankOpened(bankId)
     }
 
     // 续刷/浏览：从断点开始
@@ -217,13 +224,18 @@ fun QuizScreen(
     // 模式选择页
     if (selMode == null) {
         val bankTotal = queue.size
-        val doneCount = when {
-            bankId == "__all__" || source == "all" -> repo.getProgress("__all__")?.answeredIds?.size ?: 0
-            bankId != null -> repo.getProgress(bankId)?.answeredIds?.size ?: 0
-            else -> 0
+        // 进度刷新版本号：清除进度后 ++ 触发 remember 重算，立即反映到界面（否则需退出重进才刷新）
+        val doneCount = remember(bankId, source, progressVersion) {
+            when {
+                bankId == "__all__" || source == "all" -> repo.getProgress("__all__")?.answeredIds?.size ?: 0
+                bankId != null -> repo.getProgress(bankId)?.answeredIds?.size ?: 0
+                else -> 0
+            }
         }
-        val hasProgress = doneCount > 0 || (bankId != null && (repo.getBrowseProgress(bankId) ?: 0) > 0)
-        val browseIdx = bankId?.let { repo.getBrowseProgress(it) } ?: 0
+        val hasProgress = remember(bankId, progressVersion) {
+            doneCount > 0 || (bankId != null && (repo.getBrowseProgress(bankId) ?: 0) > 0)
+        }
+        val browseIdx = remember(bankId, progressVersion) { bankId?.let { repo.getBrowseProgress(it) } ?: 0 }
         val pct = if (bankTotal > 0) (doneCount * 100 / bankTotal) else 0
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
@@ -344,10 +356,9 @@ fun QuizScreen(
                     }
                 }
 
-                // 题型筛选（可选）：按题型刷题；与「随机」组合即「同题型随机顺序」
-                SectionTitle("题型筛选（可选）")
+                // 题型筛选（可选）：支持多选组合；与「随机」组合即「同题型随机顺序」
+                SectionTitle("题型筛选（可选，可多选）")
                 val typeFilterChips = listOf(
-                    null to "全部",
                     QuestionType.single to "单选",
                     QuestionType.multiple to "多选",
                     QuestionType.judge to "判断",
@@ -358,10 +369,18 @@ fun QuizScreen(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // 「全部」= 清空题型选择
+                    FilterChip(
+                        selected = filterTypes.isEmpty(),
+                        onClick = { filterTypes = emptySet() },
+                        label = { Text("全部") }
+                    )
                     typeFilterChips.forEach { (t, label) ->
                         FilterChip(
-                            selected = filterType == t,
-                            onClick = { filterType = t },
+                            selected = t in filterTypes,
+                            onClick = {
+                                filterTypes = if (t in filterTypes) filterTypes - t else filterTypes + t
+                            },
                             label = { Text(label) }
                         )
                     }
@@ -434,6 +453,8 @@ fun QuizScreen(
                                 bankId == "__all__" || source == "all" -> repo.clearProgress("__all__")
                                 bankId != null -> repo.clearProgress(bankId)
                             }
+                            // 立即刷新进度显示（doneCount / hasProgress / 断点续刷按钮）
+                            progressVersion++
                         },
                         enabled = hasProgress
                     ) {
@@ -492,7 +513,7 @@ fun QuizScreen(
         aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
         aiJob = coroutineScope.launch {
             try {
-                val cfg = AiConfigStore.load(context)
+                val cfg = AiConfigStore.activeConfig(context)
                 val reusePrev = AiConfigStore.loadAll(context).reusePrevOnRegen
                 val bankHint = repo.getBanks().firstOrNull { it.id == bid }?.aiHint ?: ""
                 val eff = hint.ifBlank { bankHint }
@@ -802,6 +823,8 @@ fun QuizScreen(
                                 color = containerColor, shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth().clickable(enabled = !submitted) {
                                     selected = if (current.q.type == QuestionType.single) setOf(origIdx)
+                                    // 多选题：再次点击同一选项应取消选择（切换），而非只做「加入」
+                                    else if (chosen.contains(origIdx)) (chosen - origIdx).toSet()
                                     else (chosen + origIdx).toSet()
                                 }
                             ) {
@@ -1579,7 +1602,7 @@ private fun buildQueue(
     filterUnanswered: Boolean,
     specifiedQuestions: List<Pair<String, com.example.shuati.model.Question>> = emptyList(),
     skipIncomplete: Boolean = true,
-    filterType: QuestionType? = null
+    filterTypes: Set<QuestionType> = emptySet()   // 空集合 = 全部题型；非空 = 仅保留这些题型（多选组合）
 ): List<QuizItem> {
     val effectiveMode = if (source == "all" || source == "browse") "sequence" else mode
     // 优先使用指定的题目列表（来自 questionIds 参数）
@@ -1606,10 +1629,13 @@ private fun buildQueue(
         }
         "plan" -> {
             val plan = planId?.let { repo.getStudyPlans().find { p -> p.id == it } }
-            val bank = plan?.bankId?.let { repo.getBankById(it) }
             val pp = planId?.let { repo.getPlanProgress(it) }
             val ids = pp?.sessionQuestionIds ?: emptyList()
-            ids.mapNotNull { id -> bank?.questions?.find { q -> q.id == id }?.let { QuizItem(bank.id, it) } }
+            // 会话记录统一为复合键「bankId::题目ID」
+            ids.mapNotNull { entry ->
+                val (bid, qid) = entry.split("::", limit = 2)
+                repo.getBankById(bid)?.questions?.find { q -> q.id == qid }?.let { QuizItem(bid, it) }
+            }
         }
         else -> {
             // 首页「浏览模式」入口使用 bankId=__all__，聚合全部题库（保留真实题库 id 便于进度/错题归属）
@@ -1633,8 +1659,8 @@ private fun buildQueue(
             list
         }
     }
-    // 题型筛选（同题型刷题）：先按题型过滤，再决定顺序
-    val filtered = if (filterType != null) base.filter { it.q.type == filterType } else base
+    // 题型筛选（同题型刷题）：先按题型集合过滤（多选组合：命中任一即保留），再决定顺序
+    val filtered = if (filterTypes.isEmpty()) base else base.filter { it.q.type in filterTypes }
     val ordered = when {
         effectiveMode == "random" -> filtered.shuffled()
         source == "browse" && bankId != "__all__" &&

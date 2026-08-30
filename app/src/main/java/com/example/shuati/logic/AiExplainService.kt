@@ -24,6 +24,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Query
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
@@ -196,25 +197,49 @@ object AiExplainService {
         suspend fun search(@Header("Authorization") auth: String, @Body req: BochaRequest): BochaResponse
     }
 
-    internal data class SearchResult(val text: String, val citations: List<String>)
+    // ── Serper.dev 搜索（Google 搜索结果，X-API-KEY 头） ────────────────
+    @Serializable
+    private data class SerperRequest(val q: String, val num: Int = 3)
 
-    /**
-     * 生成 AI 解析（一次性，兼容旧调用）。内部走流式实现，仅忽略事件。
-     */
-    suspend fun explain(cfg: AiConfig, q: Question, hint: String): AiExplanation =
-        withContext(Dispatchers.IO) {
-            var result: AiExplanation? = null
-            var errMsg: String? = null
-            explainStream(cfg, q, hint) { ev ->
-                when (ev) {
-                    is AiStreamEvent.Done -> result = ev.ai
-                    is AiStreamEvent.Error -> errMsg = ev.msg
-                    else -> {}
-                }
-            }
-            if (errMsg != null) throw IllegalStateException(errMsg)
-            result ?: throw IllegalStateException("模型未返回解析内容，请检查模型/Key 或重试")
-        }
+    @Serializable
+    private data class SerperResponse(val organic: List<SerperResult> = emptyList())
+
+    @Serializable
+    private data class SerperResult(
+        val title: String = "",
+        val link: String = "",
+        val snippet: String = ""
+    )
+
+    private interface SerperApi {
+        @POST("search")
+        suspend fun search(@Header("X-API-KEY") key: String, @Body req: SerperRequest): SerperResponse
+    }
+
+    // ── Brave Search（隐私搜索，X-Subscription-Token 头） ───────────────
+    @Serializable
+    private data class BraveResponse(val web: BraveWeb = BraveWeb())
+
+    @Serializable
+    private data class BraveWeb(val results: List<BraveResult> = emptyList())
+
+    @Serializable
+    private data class BraveResult(
+        val title: String = "",
+        val url: String = "",
+        val description: String = ""
+    )
+
+    private interface BraveApi {
+        @GET("res/v1/web/search")
+        suspend fun search(
+            @Header("X-Subscription-Token") token: String,
+            @Query("q") q: String,
+            @Query("count") count: Int
+        ): BraveResponse
+    }
+
+    internal data class SearchResult(val text: String, val citations: List<String>)
 
     /**
      * 流式生成 AI 解析（主入口）。通过 onEvent 上报思考进度与逐字内容。
@@ -298,6 +323,27 @@ object AiExplainService {
         require(cfg.llmBaseUrl.isNotBlank() && cfg.llmApiKey.isNotBlank()) { "请先填写大模型地址与 Key" }
         val api = retrofit(cfg.llmBaseUrl).create(OpenAiApi::class.java)
         api.models("Bearer ${cfg.llmApiKey}").data.map { it.id }.filter { it.isNotBlank() }.sorted()
+    }
+
+    /**
+     * 测试单个模型连通性：对指定 model 发一个最小非流式 chat 请求，能正常返回即为可用。
+     * 返回空串表示连通成功，否则返回错误描述。
+     */
+    suspend fun testModel(cfg: AiConfig, model: String): String = withContext(Dispatchers.IO) {
+        if (model.isBlank()) return@withContext "模型名为空"
+        try {
+            val api = retrofit(cfg.llmBaseUrl).create(OpenAiApi::class.java)
+            val req = ChatRequest(
+                model = model,
+                messages = listOf(ChatMessage("user", "ping")),
+                temperature = 0.0,
+                max_tokens = 8
+            )
+            val resp = api.chat("Bearer ${cfg.llmApiKey}", req)
+            if (resp.choices.isEmpty()) "" else "" // 有 choices 即视为连通
+        } catch (e: Exception) {
+            e.message ?: e.toString()
+        }
     }
 
     // ── 底层流式 HTTP（SSE，兼容非流式回退） ──────────────────────────
@@ -435,6 +481,24 @@ object AiExplainService {
                 val resp = retrofit("https://api.bochaai.com/").create(BochaApi::class.java)
                     .search("Bearer ${cfg.searchApiKey}", BochaRequest(query = query))
                 bochaResultsToSearch(resp.data)
+            }
+            "serper" -> {
+                val resp = retrofit("https://google.serper.dev/").create(SerperApi::class.java)
+                    .search(cfg.searchApiKey, SerperRequest(q = query, num = 3))
+                val items = resp.organic.take(3)
+                SearchResult(
+                    text = items.joinToString("\n\n") { "【${it.title}】\n${it.snippet.take(500)}" },
+                    citations = items.mapNotNull { it.link.takeIf { u -> u.isNotBlank() } }
+                )
+            }
+            "brave" -> {
+                val resp = retrofit("https://api.search.brave.com/").create(BraveApi::class.java)
+                    .search(cfg.searchApiKey, q = query, count = 3)
+                val items = resp.web.results.take(3)
+                SearchResult(
+                    text = items.joinToString("\n\n") { "【${it.title}】\n${it.description.take(500)}" },
+                    citations = items.mapNotNull { it.url.takeIf { u -> u.isNotBlank() } }
+                )
             }
             else -> throw IllegalStateException("不支持的搜索引擎：${cfg.searchProvider}")
         }

@@ -19,11 +19,7 @@ import java.util.UUID
 object AiConfigStore {
 
     private const val FILE = "shuati_ai_secure"
-    // 旧单配置键（用于首次启动时迁移到多供应商结构）
-    private const val K_BASE = "llm_base_url"
-    private const val K_KEY = "llm_api_key"
-    private const val K_MODEL = "llm_model"
-    // 新多供应商键
+    // 多供应商键
     private const val K_PROVIDERS = "providers_json"
     private const val K_SEL_PROVIDER = "selected_provider_id"
     // 全局模块键
@@ -53,7 +49,7 @@ object AiConfigStore {
         val reusePrevOnRegen: Boolean = true
     )
 
-    /** 读取全部设置；首次启动若存在旧单配置，自动迁移为单个供应商。 */
+    /** 读取全部设置。 */
     fun loadAll(ctx: Context): AiSettings {
         val p = prefs(ctx)
         val providers = p.getString(K_PROVIDERS, "")?.takeIf { it.isNotBlank() }?.let { raw ->
@@ -63,27 +59,6 @@ object AiConfigStore {
         val searchApiKey = p.getString(K_SEARCH_KEY, "") ?: ""
         val customPrompt = p.getString(K_PROMPT, "") ?: ""
         val reusePrevOnRegen = p.getBoolean(K_REUSE_PREV, true)
-
-        // 迁移：旧单配置 -> 单个供应商
-        if (providers.isEmpty()) {
-            val oldBase = p.getString(K_BASE, "") ?: ""
-            val oldKey = p.getString(K_KEY, "") ?: ""
-            val oldModel = p.getString(K_MODEL, "") ?: ""
-            if (oldBase.isNotBlank() || oldKey.isNotBlank() || oldModel.isNotBlank()) {
-                val pid = newProviderId()
-                val prov = AiProviderConfig(
-                    id = pid,
-                    name = defaultName(oldBase),
-                    baseUrl = oldBase,
-                    apiKey = oldKey,
-                    models = if (oldModel.isNotBlank()) listOf(oldModel) else emptyList(),
-                    selectedModel = oldModel
-                )
-                val migrated = AiSettings(listOf(prov), pid, searchProvider, searchApiKey, customPrompt, reusePrevOnRegen)
-                saveProviders(ctx, migrated.providers, migrated.selectedProviderId)
-                return migrated
-            }
-        }
         val sel = p.getString(K_SEL_PROVIDER, "") ?: ""
         return AiSettings(providers, sel, searchProvider, searchApiKey, customPrompt, reusePrevOnRegen)
     }
@@ -104,9 +79,6 @@ object AiConfigStore {
             customPrompt = s.customPrompt
         )
     }
-
-    /** 兼容旧调用：等价于 activeConfig。 */
-    fun load(ctx: Context): AiConfig = activeConfig(ctx)
 
     fun saveProviders(ctx: Context, providers: List<AiProviderConfig>, selectedProviderId: String) {
         prefs(ctx).edit().apply {
@@ -136,8 +108,4 @@ object AiConfigStore {
         cfg.searchApiKey.isNotBlank() && cfg.searchProvider.isNotBlank()
 
     fun newProviderId(): String = "p_${UUID.randomUUID()}"
-
-    /** 由端点推导默认供应商名称（取 host）。 */
-    fun defaultName(baseUrl: String): String =
-        if (baseUrl.isBlank()) "未命名供应商" else runCatching { URI(baseUrl).host ?: baseUrl }.getOrDefault(baseUrl)
 }

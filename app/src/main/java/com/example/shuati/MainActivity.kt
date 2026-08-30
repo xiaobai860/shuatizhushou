@@ -19,6 +19,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 冷启动经系统分享进入：解析 intent 写入 holder（AppNavHost 观察 holder 导航到导入页）
+        SharedImportIntent.from(intent)?.let { SharedImportIntent.holder.value = it }
         setContent {
             val repo = (application as ShuatiApplication).repository
             // 主题模式："system" 跟随系统 / "light" 浅色 / "dark" 深色
@@ -32,8 +34,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // 系统分享面板进入时，把文件 Uri 交给导入确认页
-                    AppNavHost(sharedImport = SharedImportIntent.from(intent))
+                    // 系统分享面板进入时，AppNavHost 观察 SharedImportIntent.holder 自动导航到导入确认页
+                    AppNavHost()
                 }
             }
         }

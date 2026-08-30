@@ -140,6 +140,16 @@ class AppRepository(private val context: Context) {
         return BooleanResult(true)
     }
 
+    /** 记录题库被打开（更新 lastOpenedAt），用于首页「最近题库」按打开时间排序。 */
+    fun markBankOpened(bankId: String) {
+        val bank = getBanks().firstOrNull { it.id == bankId } ?: return
+        updateBank(bank.copy(lastOpenedAt = System.currentTimeMillis()))
+    }
+
+    /** 首页「最近题库」：按最后打开时间由近到远，取前 limit 个（未打开过的排在最后）。 */
+    fun getRecentBanks(limit: Int = 3): List<QuestionBank> =
+        getBanks().sortedByDescending { it.lastOpenedAt }.take(limit)
+
     fun updateBank(bank: QuestionBank): Boolean {
         val banks = getBanks().toMutableList()
         val idx = banks.indexOfFirst { it.id == bank.id }
