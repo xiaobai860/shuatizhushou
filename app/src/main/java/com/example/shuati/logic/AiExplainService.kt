@@ -31,7 +31,10 @@ import java.util.concurrent.TimeUnit
  *    约束大模型输出简洁、精准、可复习。该 skill 仅作为系统提示注入，无需任何服务端，纯客户端即可生效。
  *  - 搜索引擎可选（Tavily / Exa）：App 先搜、再把结果作为上下文喂给大模型；未配置则依赖模型内置联网。
  *  - 解析默认由调用方写入 Question.aiExplanation 落盘（见 QuizScreen / AppRepository）。
- *  - 生成过程以流式事件（Thinking / Generating / Delta / Done / Error）上报，便于 UI 展示思考与逐字进度。
+ *  - 生成过程以流式事件（Thinking / Generating / Delta / Reasoning / Done / Error）上报，
+ *    便于 UI 展示准备进度、思考过程与逐字内容。思考过程仅用于展示，不落盘。
+ *  - 思考内容与可见答案由 [ThinkingSplitter] 分离；模型是否为推理模型由 [isLikelyReasoningModel] 启发式判断
+ *    （仅影响进度文案，实际展示与否取决于流里是否真有 reasoning 内容）。
  */
 object AiExplainService {
 
@@ -79,8 +82,22 @@ object AiExplainService {
         data class Thinking(val msg: String) : AiStreamEvent
         /** 思考结束，开始生成逐字内容。 */
         object Generating : AiStreamEvent
-        /** 流式增量文本（逐字/逐词）。 */
+        /**
+         * 可见答案的**全量快照**（注意不是增量）。
+         *
+         * 约定：[Delta] 与 [Reasoning] 一律传「截至当前的完整文本快照」，
+         * UI 侧直接整体替换显示即可，无需 append。这样两个流各自独立、互不干扰。
+         * 快照内容已经过净化（剥离思考块、控制字符等），可直接落盘。
+         */
         data class Delta(val text: String) : AiStreamEvent
+        /**
+         * 模型思考过程的**全量快照**（不是增量，语义同 [Delta]）。
+         *
+         * 只有真的收到了思考内容才会发出（来自 `reasoning_content` / `reasoning` 字段，
+         * 或正文里的 `<think>` 块），因此 UI 可以「收到即展示」而不必预判模型类型。
+         * 思考过程**不落盘**，生成结束后即消失——它只是展示层。
+         */
+        data class Reasoning(val text: String) : AiStreamEvent
         /** 完成，携带最终 AiExplanation。 */
         data class Done(val ai: AiExplanation) : AiStreamEvent
         /** 出错。 */
@@ -203,14 +220,49 @@ object AiExplainService {
         }
 
         val prompt = buildPrompt(q, hint, searchContext?.text)
-        onEvent(AiStreamEvent.Thinking("正在生成解析…（大模型思考中）"))
+        // 仅用于进度文案：推理模型的思考阶段可能较长，提示语略有区别。
+        // 注意：是否真的展示思考过程，一律以流里是否收到 reasoning 内容为准（真实信号优先）。
+        val likelyReasoningModel = isLikelyReasoningModel(cfg.llmModel)
+        onEvent(
+            AiStreamEvent.Thinking(
+                if (likelyReasoningModel) "正在生成解析…（推理模型思考较久，请稍候）"
+                else "正在生成解析…（大模型思考中）"
+            )
+        )
         onEvent(AiStreamEvent.Generating)
 
-        val raw = StringBuilder()
+        // 思考 / 答案两路分离：splitter.answer 只含可见答案（落盘），
+        // splitter.thinking 只含思考过程（仅展示、不落盘）。
+        val splitter = ThinkingSplitter()
         try {
-            streamChat(cfg, prompt) { delta ->
-                raw.append(delta)
-                val clean = sanitizeAiText(raw.toString())
+            streamChat(cfg, prompt) { content, reasoning ->
+                // 1) 独立思考字段（DeepSeek-R1 / 硅基流动 / QwQ 等）
+                if (reasoning.isNotEmpty()) {
+                    splitter.pushReasoning(reasoning)
+                    val think = sanitizeThinkingText(splitter.thinking)
+                    if (think.isNotEmpty()) onEvent(AiStreamEvent.Reasoning(think))
+                }
+                // 2) 正文（可能内嵌 <think>…</think> 块）
+                if (content.isNotEmpty()) {
+                    val split = splitter.pushContent(content)
+                    if (split.thinkingDelta.isNotEmpty()) {
+                        val think = sanitizeThinkingText(splitter.thinking)
+                        if (think.isNotEmpty()) onEvent(AiStreamEvent.Reasoning(think))
+                    }
+                    if (split.answerDelta.isNotEmpty()) {
+                        val clean = sanitizeAiText(splitter.answer)
+                        if (clean.isNotEmpty()) onEvent(AiStreamEvent.Delta(clean))
+                    }
+                }
+            }
+            // 流结束：补吐未决尾部（如被截断的标签前缀）；未闭合的思考块保持有效，不回退
+            val tail = splitter.flush()
+            if (tail.thinkingDelta.isNotEmpty()) {
+                val think = sanitizeThinkingText(splitter.thinking)
+                if (think.isNotEmpty()) onEvent(AiStreamEvent.Reasoning(think))
+            }
+            if (tail.answerDelta.isNotEmpty()) {
+                val clean = sanitizeAiText(splitter.answer)
                 if (clean.isNotEmpty()) onEvent(AiStreamEvent.Delta(clean))
             }
         } catch (e: Exception) {
@@ -218,7 +270,8 @@ object AiExplainService {
             throw e
         }
 
-        val text = sanitizeAiText(raw.toString()).trim()
+        // 落盘内容只含净化后的可见答案，思考过程不进 AiExplanation
+        val text = sanitizeAiText(splitter.answer).trim()
         if (text.isBlank()) throw IllegalStateException("模型未返回解析内容，请检查模型/Key 或重试")
 
         val ai = AiExplanation(
@@ -242,7 +295,14 @@ object AiExplainService {
     }
 
     // ── 底层流式 HTTP（SSE，兼容非流式回退） ──────────────────────────
-    private fun streamChat(cfg: AiConfig, prompt: String, onDelta: (String) -> Unit) {
+    /**
+     * @param onDelta 参数1 = 正文 content 增量，参数2 = 思考内容增量（二者都可能为空串，互斥亦可并存）。
+     */
+    private fun streamChat(
+        cfg: AiConfig,
+        prompt: String,
+        onDelta: (content: String, reasoning: String) -> Unit
+    ) {
         val url = cfg.llmBaseUrl.trim().removeSuffix("/") + "/chat/completions"
         val bodyStr = json.encodeToString(
             ChatRequest.serializer(),
@@ -274,7 +334,6 @@ object AiExplainService {
             val source = resp.body?.source()
                 ?: throw IllegalStateException("模型未返回内容（空响应）")
 
-            val full = StringBuilder()
             var sawData = false
             val raw = StringBuilder() // 用于非流式（单条 JSON）回退
             while (true) {
@@ -286,10 +345,13 @@ object AiExplainService {
                     if (data == "[DONE]") break
                     val chunk = runCatching { json.decodeFromString(StreamChunk.serializer(), data) }.getOrNull()
                         ?: continue
-                    val delta = chunk.choices.firstOrNull()?.delta?.content
-                    if (!delta.isNullOrEmpty()) {
-                        full.append(delta)
-                        onDelta(delta)
+                    val delta = chunk.choices.firstOrNull()?.delta ?: continue
+                    val content = delta.content.orEmpty()
+                    // 不同兼容端点字段名不同：DeepSeek / 硅基流动 / 智谱等用 reasoning_content，
+                    // 部分端点（含部分 OpenAI 兼容网关）用 reasoning；两者都读，缺字段时为 null。
+                    val reasoning = delta.reasoning_content ?: delta.reasoning
+                    if (content.isNotEmpty() || !reasoning.isNullOrEmpty()) {
+                        onDelta(content, reasoning.orEmpty())
                     }
                 } else if (!sawData) {
                     // 非 SSE：可能是单条 JSON 响应（部分兼容端点不支持 stream）
@@ -300,7 +362,7 @@ object AiExplainService {
                 val single = runCatching { json.decodeFromString(ChatResponse.serializer(), raw.toString()) }
                     .getOrNull()
                 val text = single?.choices?.firstOrNull()?.message?.content?.trim()
-                if (!text.isNullOrEmpty()) onDelta(text)
+                if (!text.isNullOrEmpty()) onDelta(text, "")
             }
         } finally {
             resp.close()
@@ -313,8 +375,16 @@ object AiExplainService {
     @Serializable
     private data class StreamChoice(val delta: StreamDelta = StreamDelta())
 
+    /**
+     * SSE 增量字段。`reasoning_content` / `reasoning` 在普通模型上不存在，
+     * json 已配 `ignoreUnknownKeys = true`，字段缺失安全。
+     */
     @Serializable
-    private data class StreamDelta(val content: String? = null)
+    private data class StreamDelta(
+        val content: String? = null,
+        val reasoning_content: String? = null,
+        val reasoning: String? = null
+    )
 
     private suspend fun doSearch(cfg: AiConfig, query: String): SearchResult = withContext(Dispatchers.IO) {
         when (cfg.searchProvider.lowercase()) {
@@ -358,6 +428,77 @@ object AiExplainService {
         s = s.replace(Regex("[ \\t]{2,}"), " ")
         return s.trim()
     }
+
+    /**
+     * 清洗思考过程文本（**仅用于展示，不落盘**）。
+     * 与 [sanitizeAiText] 的区别：不剥离 `<think>` 块（思考内容本身就是块里的东西），
+     * 且只做 `trimStart`——流还在继续时尾部空格不应被吃掉，否则光标会贴字。
+     */
+    private fun sanitizeThinkingText(raw: String): String {
+        var s = raw
+        s = s.replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]"), "")
+        s = s.replace(Regex("[\\u200B\\u200C\\u200D\\uFEFF\\u00AD]"), "")
+        s = s.replace(Regex("\\n{3,}"), "\n\n")
+        s = s.replace(Regex("[ \\t]{2,}"), " ")
+        return s.trimStart()
+    }
+
+    /**
+     * 启发式判断某个模型 id 是否**可能**是推理（思考型）模型。
+     *
+     * 覆盖 `o1` / `o3` / `o4` / `gpt-5` / `deepseek-r1` / `deepseek-reasoner` / `qwq` /
+     * `glm-z1` / `kimi-thinking` / `*-thinking` / `*reasoner` / `r1` 等常见命名，
+     * 并兼容 `-` `_` `:` `.` `/` 空格等分隔符变体与大小写差异。
+     *
+     * **重要**：本判定**只**用于进度文案与「思考中」占位提示。
+     * 是否真的展示思考过程，一律以流里是否真的收到了 reasoning 内容为准（真实信号优先），
+     * 这样即使误判（把普通模型认成推理模型、或漏判）也不会在界面上留下空白思考区。
+     *
+     * @param modelId 用户在设置页填写的模型 id，如 `deepseek-r1`、`Pro/deepseek-ai/DeepSeek-R1`
+     * @return true 表示「有较高概率是推理模型」
+     */
+    fun isLikelyReasoningModel(modelId: String): Boolean {
+        if (modelId.isBlank()) return false
+        val normalized = modelId.lowercase()
+            .replace(Regex("[_.:/\\s]+"), "-")
+            .trim('-')
+        if (normalized.isEmpty()) return false
+
+        // 1) 按分隔符切段，逐段精确匹配（避免 "r1" 误命中 "llama-3-1-70b" 这类）
+        val tokens = normalized.split('-')
+        if (tokens.any { it in REASONING_MODEL_TOKENS }) return true
+
+        // 2) 整串包含匹配（覆盖 gpt-5、deepseek-r1 这类多段词组）
+        if (REASONING_MODEL_PHRASES.any { normalized.contains(it) }) return true
+
+        // 3) 紧凑串兜底（兼容 deepseekr1 / DeepSeek_R1 之类无分隔符写法）
+        val compact = normalized.replace("-", "")
+        return REASONING_MODEL_PHRASES.any { compact.contains(it.replace("-", "")) }
+    }
+
+    /** [isLikelyReasoningModel] 的段级关键字（命中即判为推理模型）。 */
+    private val REASONING_MODEL_TOKENS: Set<String> = setOf(
+        // OpenAI o 系列 / gpt-oss 开放式推理模型
+        "o1", "o3", "o4", "oss",
+        // DeepSeek R1 系及同类命名
+        "r1", "r2",
+        // 智谱 GLM-Z1 / MiniMax-M1
+        "z1", "m1",
+        // 通义千问推理模型
+        "qwq",
+        // 显式带思考 / 推理后缀的命名
+        "think", "thinking", "reasoner", "reasoning"
+    )
+
+    /** [isLikelyReasoningModel] 的词组级关键字（整串 / 紧凑串包含匹配）。 */
+    private val REASONING_MODEL_PHRASES: List<String> = listOf(
+        "gpt-5",
+        "deepseek-r1",
+        "deepseek-reasoner",
+        "kimi-thinking",
+        "qwen3-thinking",
+        "glm-z1"
+    )
 
     private fun buildPrompt(q: Question, hint: String, searchText: String?): String {
         val sb = StringBuilder()

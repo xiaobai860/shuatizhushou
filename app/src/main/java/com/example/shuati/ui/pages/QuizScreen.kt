@@ -1,6 +1,12 @@
 package com.example.shuati.ui.pages
 
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.border
@@ -48,6 +54,7 @@ import com.example.shuati.ui.components.ThinProgress
 import kotlinx.coroutines.delay
 import java.util.UUID
 import com.example.shuati.ui.theme.semantic
+import com.example.shuati.ui.theme.ShuatiMotion
 import com.example.shuati.data.AiConfigStore
 import com.example.shuati.logic.AiExplainService
 import com.example.shuati.model.AiExplanation
@@ -95,6 +102,8 @@ fun QuizScreen(
     // 流式进度状态
     var aiThinking by remember { mutableStateOf<String?>(null) }
     var aiFlow by remember { mutableStateOf("") }
+    // 模型思考过程（仅展示，不落盘，生成结束后消失）；空串表示「无思考内容」
+    var aiReasoning by remember { mutableStateOf("") }
     var aiJob by remember { mutableStateOf<Job?>(null) }
     var aiRegenerating by remember { mutableStateOf(false) }
 
@@ -138,6 +147,7 @@ fun QuizScreen(
         aiJob?.cancel()
         aiThinking = null
         aiFlow = ""
+        aiReasoning = ""
         aiError = null
         aiRegenerating = false
         aiBusy = false
@@ -778,6 +788,7 @@ fun QuizScreen(
                         aiError = aiError,
                         aiThinking = aiThinking,
                         aiStreamingText = if (aiFlow.isNotEmpty()) aiFlow else null,
+                        aiReasoningText = if (aiReasoning.isNotEmpty()) aiReasoning else null,
                         aiRegenerating = aiRegenerating,
                         onAiClick = {
                             aiHintDraft = repo.getBanks().firstOrNull { it.id == current.bankId }?.aiHint ?: ""
@@ -798,6 +809,7 @@ fun QuizScreen(
                 aiBusy = true
                 aiError = null
                 aiFlow = ""
+                aiReasoning = ""
                 // 是否「重新生成」：已有解析则保留旧结果并展示重生成动画
                 val existing = aiMap[q.id] ?: q.aiExplanation
                 aiRegenerating = existing != null
@@ -813,15 +825,24 @@ fun QuizScreen(
                                 is AiStreamEvent.Generating -> {
                                     aiThinking = if (aiRegenerating) "正在重新生成解析…" else "正在生成解析…"
                                     aiFlow = ""
+                                    aiReasoning = ""
                                 }
-                                is AiStreamEvent.Delta -> aiFlow += ev.text
+                                // Delta 与 Reasoning 传的都是「全量快照」，整体替换而非 append
+                                is AiStreamEvent.Delta -> aiFlow = ev.text
+                                // 只有真的收到思考内容才会来这个事件；普通模型永远收不到
+                                is AiStreamEvent.Reasoning -> aiReasoning = ev.text
                                 is AiStreamEvent.Done -> {
                                     aiRegenerating = false
                                     repo.saveAiExplanation(bid, q.id, ev.ai)
                                     aiMap = aiMap + (q.id to ev.ai)
                                     aiFlow = ""
+                                    aiReasoning = ""
                                 }
-                                is AiStreamEvent.Error -> aiError = ev.msg
+                                is AiStreamEvent.Error -> {
+                                    aiError = ev.msg
+                                    aiFlow = ""
+                                    aiReasoning = ""
+                                }
                             }
                         }
                     } catch (e: Exception) {
@@ -831,6 +852,9 @@ fun QuizScreen(
                         aiThinking = null
                         aiBusy = false
                         aiRegenerating = false
+                        // 出错 / 取消 / 结束时统一清掉流式残留，避免串到下一题
+                        aiFlow = ""
+                        aiReasoning = ""
                     }
                 }
             }
@@ -1072,6 +1096,8 @@ private fun AnswerPanel(
     aiError: String? = null,
     aiThinking: String? = null,
     aiStreamingText: String? = null,
+    /** 模型思考过程（仅展示，不落盘）。为 null / 空串时不渲染思考区，普通模型界面保持原样。 */
+    aiReasoningText: String? = null,
     aiRegenerating: Boolean = false,
     onAiClick: () -> Unit = {},
     onRegenerate: () -> Unit = {}
@@ -1215,7 +1241,10 @@ private fun AnswerPanel(
                 }
             }
             // 流式逐字生成中（首生成与重新生成共用实时卡）
-            aiStreamingText != null -> {
+            // 推理模型通常会先吐思考内容、后吐答案，因此「只有思考内容」时也要进入实时卡
+            aiStreamingText != null || aiReasoningText != null -> {
+                val reasonText = aiReasoningText
+                val answerText = aiStreamingText
                 Spacer(Modifier.height(10.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1228,8 +1257,15 @@ private fun AnswerPanel(
                             Spacer(Modifier.width(6.dp))
                             Text(if (aiRegenerating) "AI 解析 · 重新生成中" else "AI 解析 · 生成中", fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary)
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text(aiStreamingText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                        if (reasonText != null && reasonText.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            // 答案还没出来时，光标跟在思考内容末尾
+                            AiThinkingBlock(text = reasonText, caret = answerText.isNullOrBlank())
+                        }
+                        if (answerText != null && answerText.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(answerText + "▍", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                        }
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
                     }
@@ -1324,6 +1360,87 @@ private fun AnswerPanel(
                     Spacer(Modifier.width(8.dp))
                     Text("AI 解析")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * AI 思考过程展示块（流式阶段专用，**仅展示、不落盘**）。
+ *
+ * - 普通模型没有思考内容时，调用方根本不会渲染本块，界面保持原样；
+ * - 默认展开，点击标题行可折叠，展开 / 收起走 200ms 统一减速曲线（无回弹）；
+ * - 内容超长时内部限高滚动，避免推理模型长思考把正文顶出屏幕；
+ * - 底部一条细分隔线，与下方的正式解析做视觉区分。
+ *
+ * @param text 思考过程全量快照
+ * @param caret 是否在末尾追加流式光标（答案尚未开始输出时为 true）
+ */
+@Composable
+private fun AiThinkingBlock(
+    text: String,
+    caret: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(true) }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable { expanded = !expanded }
+            .padding(vertical = 2.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Psychology,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                "思考过程",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)) +
+                expandVertically(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)),
+            exit = fadeOut(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard)) +
+                shrinkVertically(animationSpec = tween(ShuatiMotion.BaseMs, easing = ShuatiMotion.Standard))
+        ) {
+            Column {
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 168.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = if (caret) text + "▍" else text,
+                        fontSize = 12.5.sp,
+                        lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                )
             }
         }
     }
