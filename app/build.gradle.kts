@@ -121,13 +121,13 @@ kotlin {
 }
 
 dependencies {
-    // Core
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // Core（1.18.0 比 1.15 新 3 个 minor，主要是 minSdk 23+ 适配 + Java 21 内部优化，API 兼容）
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.activity:activity-compose:1.13.0")
 
-    // Compose BOM（1.11.x 与 AGP 8.9 兼容；backdrop 需要 Compose ≥1.11）
-    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    // Compose BOM（2026.08.00 = Compose 1.12 stable，2026-08-12 发布；含新组件与性能改进）
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -142,23 +142,25 @@ dependencies {
     // DataStore (preferences + protobuf not needed; we store JSON via Preferences)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // JSON serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // JSON serialization（1.10.x 进入 API 稳定期，与 1.7.3 兼容）
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
 
     // Excel / XLSX 读写：已改用自研轻量实现 logic/LightXlsx.kt（xlsx=ZIP+XML），
     // 彻底移除 Apache POI（poi-ooxml/poi/xmlbeans/commons-compress），大幅减小包体。
     // 仅支持 .xlsx，不再支持 .xls。
 
     // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
 
     // 密钥本地加密存储（AI 配置 Key）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // 网络请求（AI 大模型 / 搜索引擎，OpenAI 兼容）
+    // OkHttp 5.x 移除了 okhttp-android 单独工件、移除 gzip(RequestBody) 旧 API；
+    // 本项目仅使用 OkHttpClient.Builder + Retrofit 标准用法（AiExplainService.kt:46），无任何 4→5 breaking API 调用。
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     testImplementation("junit:junit:4.13.2")
 }

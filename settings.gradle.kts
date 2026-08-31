@@ -28,5 +28,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Shuati"
+rootProject.name = "刷题小助手"
 include(":app")
