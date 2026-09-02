@@ -55,31 +55,15 @@ android {
         applicationId = "com.example.shuati"
         minSdk = 34
         targetSdk = 36
-        // 版本号规则：
-        //  - versionName（外显版本号，规则不变）：YYYYMMDD + 两位当日迭代，例 2026082903
-        //  - versionCode（应用内部总迭代数 / 判断升级降级的字段）：独立累计计数器，
-        //    每次执行 assemble*/bundle*/install*/build 自动 +1（从 1 开始），与 versionName 解耦、单调递增。
-        val buildNumberFile = rootProject.file("app/buildNumber.properties")
-        val buildProps = Properties()
-        if (buildNumberFile.exists()) {
-            buildNumberFile.inputStream().use { buildProps.load(it) }
-        }
-        val isBuildTask = gradle.startParameter.taskNames.any {
-            it.contains("assemble", ignoreCase = true) ||
-            it.contains("bundle", ignoreCase = true) ||
-            it.contains("install", ignoreCase = true) ||
-            it.equals("build", ignoreCase = true)
-        }
-        var buildNumber = buildProps.getProperty("buildNumber")?.toIntOrNull() ?: 0
-        if (isBuildTask) {
-            buildNumber += 1
-            buildProps.setProperty("buildNumber", buildNumber.toString())
-            buildNumberFile.parentFile.mkdirs()
-            buildNumberFile.outputStream().use { buildProps.store(it, "Auto-incremented build number (versionCode)") }
-        }
-        versionCode = buildNumber
-        // 2026-09-02 迭代：移除测试题库模块、release 包瘦身（排除 META-INF 版本戳/LICENSE）
-        versionName = "2026090201"
+        // 版本号规则（2026-09-02 起统一）：
+        //  - versionName 格式固定为「年月日 + 两位当日迭代」，例 2026090204 表示 2026-09-02 第 4 次迭代。
+        //  - versionCode（内部 build 号）与 versionName 完全统一：直接由 versionName 解析为
+        //    整数 YYYYMMDD*100 + II，即 versionName 本身即合法递增整数（如 2026090204）。
+        //    两者绑定后升级判断严格单调，不再依赖外部累计脚本。
+        val versionName = "2026090204"
+        this.versionName = versionName
+        versionCode = versionName.toIntOrNull()
+            ?: error("versionName 必须是 YYYYMMDDII 形式的纯数字，当前为 $versionName")
         vectorDrawables {
             useSupportLibrary = true
         }

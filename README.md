@@ -26,10 +26,9 @@
 > - **新 DSL 已就绪**：本项目零 legacy Variant API（无 `applicationVariants` / `variantFilter` / `registerJavaGeneratingTask` 等），已实测 `android.newDsl=true` 编译通过且无弃用警告，故**不声明**该 opt-out flag（它在 AGP 10.0 会被彻底移除）。
 > - 未启用 multidex：minSdk 34 ≥ 21，原生多 dex，无需 `androidx.multidex`。
 
-**版本号规则**（显示「`v$versionName · build $versionCode`」）：
-- `versionName`：外显版本号，格式 `YYYYMMDD` + 两位当日迭代（如 `2026083009`），手动修改。
-- `versionCode`：内部累计构建计数器，从 1 自增、单调递增；由 `app/buildNumber.properties` 持久化，执行 assemble/bundle/install/build 时自动 +1（该文件须纳入 git）。
-- 当前：`versionName=2026083009`。
+**版本号规则**（「我的」页仅显示 `v$versionName`，不显示内部 build 号）：
+- `versionName`：外显版本号，格式 `YYYYMMDD` + 两位当日迭代（如 `2026090201` 表示 2026-09-02 第 1 次迭代），手动修改 `app/build.gradle.kts` 中的 `defaultConfig.versionName`。
+- `versionCode`（内部 build 号）：与 `versionName` 完全统一，直接由 `versionName` 解析为 `YYYYMMDD*100 + II`（即 `versionName` 本身即合法递增整数），不再依赖外部累计脚本 `buildNumber.properties`（已移除）。升级判断严格单调。
 
 > **设计体系「柔光书桌」**（详见 `.impeccable.md` / `outputs/shuati-design-system.md`）：
 > 主色陶土橙 `#C8551E`、次色柔紫 `#6F5FA8`、薄荷 `#3C8A75`；语义色锁定：正确 `#2E8B62` / 警告 `#A96C10` / 错误 `#C2403A` / 信息 `#3D74B8`；渐变仅限 Hero/进度/空状态/主 CTA；动效 120/200/320ms 减速、禁回弹；答错文案「再看一眼」。已移除 `AuroraBackground.kt`/`Glass.kt`。
@@ -72,7 +71,7 @@
 ### 我的 Tab（MineTabScreen）
 - 数据管理：统计分析、题目搜索、备份还原、AI 大模型配置
 - **储存空间**：真实字节占比三段条（题库/记录/其他）+ 颜色图例
-- 版本号「`v$versionName · build $versionCode`」
+- 版本号「`v$versionName`」（仅外显版本号，不显示内部 build 号）
 
 ### 刷题（QuizScreen）⭐ 核心
 - **模式选择页**：顺序 / 随机 / 浏览（含已答进度、上次浏览位置、清除进度）

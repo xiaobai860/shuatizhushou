@@ -50,6 +50,8 @@ class AppRepository(private val context: Context) {
         private val QUESTION_STATS_KEY = stringPreferencesKey("question_stats")
         private val WRONG_ANSWERS_KEY = stringPreferencesKey("wrong_answers")
         private val BACKUP_HISTORY_KEY = stringPreferencesKey("backup_history")
+        private val REMINDER_ENABLED_KEY = stringPreferencesKey("reminder_enabled")
+        private val REMINDER_TIME_KEY = stringPreferencesKey("reminder_time")
     }
 
     // ─── 内存缓存 ────────────────────────────────────────────────
@@ -338,6 +340,26 @@ class AppRepository(private val context: Context) {
     fun saveThemeMode(mode: String) {
         themeMode = mode
         writeString(THEME_MODE_KEY, mode)
+    }
+
+    // ─── 偏好：每日提醒（开关 + 时间 HH:mm） ────────────────────────
+    var reminderEnabled: Boolean by mutableStateOf(
+        runBlocking { (context.dataStore.data.first()[REMINDER_ENABLED_KEY] ?: "0") == "1" }
+    )
+        private set
+    var reminderTime: Pair<Int, Int> by mutableStateOf(
+        runBlocking {
+            val raw = context.dataStore.data.first()[REMINDER_TIME_KEY] ?: "21:00"
+            raw.split(":").let { (h, m) -> (h.toIntOrNull() ?: 21) to (m.toIntOrNull() ?: 0) }
+        }
+    )
+        private set
+
+    fun saveReminder(enabled: Boolean, hour: Int = reminderTime.first, minute: Int = reminderTime.second) {
+        reminderEnabled = enabled
+        reminderTime = hour to minute
+        writeString(REMINDER_ENABLED_KEY, if (enabled) "1" else "0")
+        writeString(REMINDER_TIME_KEY, "%02d:%02d".format(hour, minute))
     }
 
     /**

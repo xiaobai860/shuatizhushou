@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
@@ -39,27 +40,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.app.TimePickerDialog
 import androidx.navigation.NavController
+import com.example.shuati.data.AppRepository
+import com.example.shuati.data.AppRepository.StorageBreakdown
 import com.example.shuati.model.QuestionBank
+import com.example.shuati.notification.ReminderScheduler
 import com.example.shuati.ui.*
+import com.example.shuati.ui.components.*
+import com.example.shuati.ui.theme.ShuatiSpacing
+import com.example.shuati.ui.theme.semantic
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import com.example.shuati.ui.components.Badge
-import com.example.shuati.ui.components.CardBox
-import com.example.shuati.ui.components.ChevronTrailing
-import com.example.shuati.ui.components.EmptyState
-import com.example.shuati.ui.components.HeroCard
-import com.example.shuati.ui.components.ListRow
-import com.example.shuati.ui.components.SectionTitle
-import com.example.shuati.ui.components.SoftButton
-import com.example.shuati.ui.components.StatTile
-import com.example.shuati.ui.components.ShuatiSwitch
-import com.example.shuati.data.AppRepository.StorageBreakdown
-import com.example.shuati.ui.components.ThinProgress
-import com.example.shuati.ui.theme.ShuatiSpacing
-import com.example.shuati.ui.theme.semantic
 
 // ─────────────────────────── 题库中心 ───────────────────────────
 
@@ -569,15 +565,25 @@ fun MineTabScreen(navController: NavController) {
     val ctx = LocalContext.current
     var storageUsed by remember { mutableStateOf(0L) }
     var storageBreakdown by remember { mutableStateOf(StorageBreakdown(0, 0, 0)) }
-    var remindOn by remember { mutableStateOf(true) }
+    var remindOn by remember { mutableStateOf(repo.reminderEnabled) }
+    var remindTime by remember { mutableStateOf(repo.reminderTime) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     val pkgInfo = remember {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
     }
     val version = pkgInfo?.versionName
-    // minSdk 34 ≥ API 28(P)，longVersionCode 始终可用，无需回退到已弃用的 versionCode
-    val buildNumber = pkgInfo?.longVersionCode?.toString()
+    // 通知权限请求器（Android 13+ 发通知需运行时授权）
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            repo.saveReminder(true, remindTime.first, remindTime.second)
+            remindOn = true
+            ReminderScheduler.schedule(ctx)
+        }
+    }
     LaunchedEffect(Unit) {
         storageUsed = repo.storageUsedBytes()
         storageBreakdown = repo.storageBreakdown()
@@ -764,9 +770,29 @@ fun MineTabScreen(navController: NavController) {
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "每日提醒",
-                        subtitle = "每天 21:00 提醒打卡",
-                        trailing = { ShuatiSwitch(checked = remindOn, onCheckedChange = { remindOn = it }) }
+                        subtitle = if (remindOn) "每天 %02d:%02d 提醒打卡".format(remindTime.first, remindTime.second) else "关闭",
+                        trailing = { ShuatiSwitch(checked = remindOn, onCheckedChange = { checked ->
+                            if (checked) {
+                                // 先请求通知权限，授权后由 launcher 完成存储与调度
+                                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                remindOn = false
+                                repo.saveReminder(false, remindTime.first, remindTime.second)
+                                ReminderScheduler.cancel(ctx)
+                            }
+                        }) }
                     )
+                    if (remindOn) {
+                        ListRow(
+                            icon = { Icon(Icons.Filled.Schedule, null, Modifier.size(18.dp)) },
+                            iconBackground = MaterialTheme.colorScheme.surfaceContainer,
+                            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            title = "提醒时间",
+                            subtitle = "%02d:%02d".format(remindTime.first, remindTime.second),
+                            trailing = { ChevronTrailing() },
+                            onClick = { showTimePicker = true }
+                        )
+                    }
                 }
             }
 
@@ -810,7 +836,7 @@ fun MineTabScreen(navController: NavController) {
                         iconBackground = MaterialTheme.colorScheme.surfaceContainer,
                         iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         title = "版本",
-                        subtitle = "v$version · build $buildNumber",
+                        subtitle = "v$version",
                         showDivider = false
                     )
                 }
@@ -826,12 +852,15 @@ fun MineTabScreen(navController: NavController) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     listOf(
-                        "📥 导入题库" to "题库页 → 导入题库，选择 Excel 文件即可",
-                        "✏️ 开始刷题" to "题库行点「刷题」，支持顺序 / 随机 / 浏览",
-                        "🔁 错题复习" to "答错自动进错题本，连对 3 次自动移除",
-                        "⭐ 收藏题目" to "答题时点亮星标，可批量练习",
-                        "🗓 学习计划" to "设置每日目标，打卡养成习惯",
-                        "💾 备份数据" to "我的 → 备份与还原，导出 JSON 防丢失"
+                        "📥 导入题库" to "题库页 → 导入题库，选择 Excel / CSV 文件即可，支持系统分享面板直接导入",
+                        "✏️ 开始刷题" to "题库行点「刷题」，支持顺序 / 随机 / 浏览，可选项乱序、跳过残缺题",
+                        "🔁 错题复习" to "答错自动进错题本，连对 3 次自动移除；可批量重练",
+                        "⭐ 收藏题目" to "答题时点亮星标，可批量练习收藏题",
+                        "🗓 学习计划" to "设置每日目标，到点打卡养成习惯；支持单/多题库",
+                        "🔔 每日提醒" to "我的页开启后，每天定点在状态栏弹通知提醒（应用未运行也能提醒）",
+                        "🤖 AI 解析" to "配置大模型后，答题页可一键生成题目解析与联网搜索",
+                        "🎨 外观" to "我的页可切换浅色/深色/跟随系统，并开启动态取色",
+                        "💾 备份与还原" to "我的 → 备份与还原，导出 ZIP/JSON 防丢失，可整包恢复"
                     ).forEach { (t, d) ->
                         Column {
                             Text(t, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -842,6 +871,29 @@ fun MineTabScreen(navController: NavController) {
             },
             confirmButton = { TextButton(onClick = { showHelpDialog = false }) { Text("知道了") } }
         )
+    }
+
+    // 每日提醒时间选择
+    // 用 DisposableEffect 持有 Dialog 实例：进入时新建并 show，退出（含点取消 dismiss）时 dismiss。
+    // 关键：setOnDismissListener 把 showTimePicker 复位为 false，否则取消后 showTimePicker 仍 true，
+    // 再次点击因状态未变不会触发重组、已 dismiss 的 Dialog 无法重新 show（需杀进程才恢复）。
+    if (showTimePicker) {
+        val (h, m) = remindTime
+        DisposableEffect(Unit) {
+            val dlg = TimePickerDialog(
+                ctx,
+                { _, hour, minute ->
+                    remindTime = hour to minute
+                    repo.saveReminder(true, hour, minute)
+                    if (remindOn) ReminderScheduler.schedule(ctx)
+                    showTimePicker = false
+                },
+                h, m, true
+            )
+            dlg.setOnDismissListener { showTimePicker = false }
+            dlg.show()
+            onDispose { dlg.dismiss() }
+        }
     }
 
     // 主题模式选择
