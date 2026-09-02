@@ -41,6 +41,13 @@ android {
             // kotlinx-coroutines 的调试探针（DebugProbesKt.bin）只应存在于 debug 构建，
             // release 不应携带。同理排除其它可能的调试残留。
             "DebugProbesKt.bin",
+            // AGP 自动写入的依赖版本戳，运行时不需要（约 60 个 *.version），位于 META-INF 子目录下
+            "META-INF/*.version",
+            // 依赖自带的 LICENSE 文本，非运行必需
+            "META-INF/**/LICENSE.txt",
+            // 构建/版本控制元数据，非运行必需
+            "META-INF/com/android/build/gradle/app-metadata.properties",
+            "META-INF/version-control-info.textproto",
         )
     }
 
@@ -71,8 +78,8 @@ android {
             buildNumberFile.outputStream().use { buildProps.store(it, "Auto-incremented build number (versionCode)") }
         }
         versionCode = buildNumber
-        // 2026-08-31 迭代：多题库学习计划、模板说明行、查重页多选范围、导入页检测字段重构
-        versionName = "2026083101"
+        // 2026-09-02 迭代：移除测试题库模块、release 包瘦身（排除 META-INF 版本戳/LICENSE）
+        versionName = "2026090201"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -101,12 +108,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
     }
 }
 
