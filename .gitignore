@@ -1,5 +1,7 @@
 # —— Android / Gradle 构建产物 ——
 *.iml
+# 旧版自动递增脚本载体（版本号已统一为 versionName 单源，不再使用）
+app/buildNumber.properties
 .gradle/
 build/
 app/build/
