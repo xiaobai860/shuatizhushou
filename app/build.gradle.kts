@@ -1,11 +1,11 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // AGP 9.0+ 已内置 Kotlin Android 支持，无需 org.jetbrains.kotlin.android
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
-
-import java.util.Properties
 
 // ── 本地签名配置（keystore.properties 被 .gitignore 忽略，不入库） ──
 // 文件内容示例（由本地创建，勿提交）：
@@ -22,7 +22,7 @@ val hasSigning = keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "com.example.shuati"
-    // AGP 9.2.0 支持 compileSdk/targetSdk 37（本机已安装 android-37 平台）
+    // 用最新平台编译。⚠️ targetSdk 刻意保持 36（见 defaultConfig），勿随 compileSdk 一并升 37
     compileSdk = 37
 
     signingConfigs {
@@ -36,34 +36,34 @@ android {
         }
     }
 
+    // 剔除包内非运行必需资源。
+    // ⚠️ AGP 9.x 会强制保留 app-metadata.properties 与 version-control-info.textproto，
+    //    写了也排不掉（曾列在此处属无效规则），故不再列举
     packaging {
         resources.excludes += setOf(
-            // kotlinx-coroutines 的调试探针（DebugProbesKt.bin）只应存在于 debug 构建，
-            // release 不应携带。同理排除其它可能的调试残留。
+            // kotlinx-coroutines 的调试探针，仅 debug 构建需要
             "DebugProbesKt.bin",
-            // AGP 自动写入的依赖版本戳，运行时不需要（约 60 个 *.version），位于 META-INF 子目录下
+            // AGP 写入的依赖版本戳（约 60 个）。⚠️ 这些文件位于 META-INF 顶层，
+            // 必须写 META-INF/*.version；写成 META-INF/**/*.version 匹配不到、静默失效
             "META-INF/*.version",
-            // 依赖自带的 LICENSE 文本，非运行必需
+            // 依赖自带的许可证文本
             "META-INF/**/LICENSE.txt",
-            // 构建/版本控制元数据，非运行必需
-            "META-INF/com/android/build/gradle/app-metadata.properties",
-            "META-INF/version-control-info.textproto",
         )
     }
 
     defaultConfig {
         applicationId = "com.example.shuati"
         minSdk = 34
+        // targetSdk 刻意停在 36 而非 37：⚠️ 勿随 compileSdk 一并升级，升到 Android 17 前需完整回归测试
+        // （通知/AlarmManager、SAF 导入导出、AI 网络、查重等核心路径）。
+        // Lint 的 OldTargetApi 警告为已知且有意保留，留作届时做 Android 17 适配的提醒，勿随手抑制。
         targetSdk = 36
-        // 版本号规则（2026-09-02 起统一）：
-        //  - versionName 格式固定为「年月日 + 两位当日迭代」，例 2026090204 表示 2026-09-02 第 4 次迭代。
-        //  - versionCode（内部 build 号）与 versionName 完全统一：直接由 versionName 解析为
-        //    整数 YYYYMMDD*100 + II，即 versionName 本身即合法递增整数（如 2026090204）。
-        //    两者绑定后升级判断严格单调，不再依赖外部累计脚本。
-        val versionName = "2026090204"
-        this.versionName = versionName
-        versionCode = versionName.toIntOrNull()
-            ?: error("versionName 必须是 YYYYMMDDII 形式的纯数字，当前为 $versionName")
+        // versionName：展示用版本号 = 年月日 + 两位迭代版号（当天第一版 01，第二版 02……）
+        // versionCode：系统用的递增整数，每次发版 +1（不可回退，与 versionName 无关）
+        // 注：设为 50 = 当时的仓库总提交数（干净解耦计数器）；因小于已装机 release 的 2026090204，
+        //     覆盖安装需先卸载旧版：adb uninstall com.example.shuati（会清本地数据，先备份导出）
+        versionCode = 50
+        versionName = "2026090204"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -99,19 +99,19 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         freeCompilerArgs.addAll(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material.ExperimentalMaterialApi"
+            // ⚠️ 只需 material3 的 opt-in：项目未依赖 androidx.compose.material（material 2）核心库，//    再加 ExperimentalMaterialApi 会报「opt-in requirement marker unresolved」警告
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
         )
     }
 }
 
 dependencies {
-    // Core（1.18.0 比 1.15 新 3 个 minor，主要是 minSdk 23+ 适配 + Java 21 内部优化，API 兼容）
+    // 基础组件
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.activity:activity-compose:1.13.0")
 
-    // Compose BOM（2026.08.00 = Compose 1.12 stable，2026-08-12 发布；含新组件与性能改进）
+    // Compose BOM（2026.08.00 = Compose 1.12 stable）：统一托管下列 ui / material3 的版本
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -124,27 +124,31 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
-    // DataStore (preferences + protobuf not needed; we store JSON via Preferences)
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    // DataStore：本项目以 Preferences 存 JSON，无需 protobuf
+    // ⚠️ 1.2.0 修复了「R8 优化下 DataStore 抛 UnsatisfiedLinkError」（本项目开了 R8），且默认存储
+    //    改为 FileStorage 降低 CorruptionException。勿退回 1.1.x：1.1.4/1.1.5 有 Gradle 元数据损坏问题。
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
 
-    // JSON serialization（1.10.x 进入 API 稳定期，与 1.7.3 兼容）
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
+    // JSON 序列化。⚠️ 版本需与 Kotlin 编译器匹配：本项目 Kotlin 2.4.10，
+    //    1.11.0 基于 Kotlin 2.3.20（1.12.0 才对齐 2.4.10，但仍是 RC），故暂取 1.11.0
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
-    // Excel / XLSX 读写：已改用自研轻量实现 logic/LightXlsx.kt（xlsx=ZIP+XML），
-    // 彻底移除 Apache POI（poi-ooxml/poi/xmlbeans/commons-compress），大幅减小包体。
-    // 仅支持 .xlsx，不再支持 .xls。
+    // Excel 读写：已改用自研轻量实现 logic/LightXlsx.kt（xlsx = ZIP + XML），仅支持 .xlsx。
+    // ⚠️ 勿再引入 Apache POI —— 它曾让 APK 膨胀到 69MB。
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
 
-    // 密钥本地加密存储（AI 配置 Key）
+    // 密钥本地加密存储（AI 配置 Key）。1.1.0-alpha06 虽已停滞，但 EncryptedSharedPreferences 无替代，勿升
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // 网络请求（AI 大模型 / 搜索引擎，OpenAI 兼容）
-    // OkHttp 5.x 移除了 okhttp-android 单独工件、移除 gzip(RequestBody) 旧 API；
-    // 本项目仅使用 OkHttpClient.Builder + Retrofit 标准用法（AiExplainService.kt:46），无任何 4→5 breaking API 调用。
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
+    // ⚠️ OkHttp 5.x 已移除 okhttp-android 工件与 gzip(RequestBody) 旧 API，本项目只用标准用法
+    // ⚠️ Retrofit 3.0 唯一的变更是内置 OkHttp 3.14 → 4.12；本项目显式用 OkHttp 5.5.0，
+    //    Gradle 会覆盖其传递依赖，故升级仅为保持版本新鲜、对运行时行为无影响。
+    //    3.x 与 2.x 前向二进制兼容，API 无变化。
+    implementation("com.squareup.retrofit2:retrofit:3.0.0")
+    implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     testImplementation("junit:junit:4.13.2")

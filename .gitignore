@@ -1,13 +1,14 @@
 # —— Android / Gradle 构建产物 ——
 *.iml
-# 旧版自动递增脚本载体（版本号已统一为 versionName 单源，不再使用）
+# 已废弃的自动递增脚本载体（版本号现为 versionName/versionCode 解耦手动维护，见 build.gradle.kts）
 app/buildNumber.properties
 .gradle/
 build/
 app/build/
 **/build/
-# release 变体输出（不在 app/build/ 下，独立于上述规则）
+# AGP 变体输出（不在 app/build/ 下，独立于上述规则）
 app/release/
+app/debug/
 captures/
 .externalNativeBuild/
 .cxx/
@@ -17,19 +18,28 @@ local.properties
 gradle.properties.local
 
 # —— IDE ——
-*.idea/
+# 标准写法：.idea 是固定目录名（旧写法 *.idea/ 依赖 * 匹配空串，语义含糊）
+.idea/
 *.iws
 *.ipr
 .DS_Store
 Thumbs.db
+desktop.ini
 ~$*
 
 # —— 运行/调试输出 ——
 *.log
 *.hprof
 *.apk
+*.aab
+*.ap_
 *.aar
 output.json
+
+# —— 补丁/合并残留 ——
+*.orig
+*.rej
+*.bak
 
 # —— Kotlin 编译器运行时产物（K2 官方推荐忽略：会话存活标记/守护进程日志等，纯本机瞬时文件） ——
 .kotlin/

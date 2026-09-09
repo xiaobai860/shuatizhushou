@@ -26,9 +26,13 @@
 > - **新 DSL 已就绪**：本项目零 legacy Variant API（无 `applicationVariants` / `variantFilter` / `registerJavaGeneratingTask` 等），已实测 `android.newDsl=true` 编译通过且无弃用警告，故**不声明**该 opt-out flag（它在 AGP 10.0 会被彻底移除）。
 > - 未启用 multidex：minSdk 34 ≥ 21，原生多 dex，无需 `androidx.multidex`。
 
-**版本号规则**（「我的」页仅显示 `v$versionName`，不显示内部 build 号）：
-- `versionName`：外显版本号，格式 `YYYYMMDD` + 两位当日迭代（如 `2026090201` 表示 2026-09-02 第 1 次迭代），手动修改 `app/build.gradle.kts` 中的 `defaultConfig.versionName`。
-- `versionCode`（内部 build 号）：与 `versionName` 完全统一，直接由 `versionName` 解析为 `YYYYMMDD*100 + II`（即 `versionName` 本身即合法递增整数），不再依赖外部累计脚本 `buildNumber.properties`（已移除）。升级判断严格单调。
+**版本号规则**（`versionName` 与 `versionCode` 解耦，两者均在 `app/build.gradle.kts` 的 `defaultConfig` 内手动维护）：
+- `versionName`：展示用版本号 = 年月日 + 两位迭代版号（`YYYYMMDDII`，10 位纯数字；当天第一版 `01`，第二版 `02`……），如 `2026091001` 表示 2026-09-10 第 1 次迭代。「我的」页仅显示 `v$versionName`。
+- `versionCode`：系统用的递增整数，每次发版 **+1**，与 `versionName` 无关。
+- ⚠️ **发版清单（两处都要改）**：① `versionName` 按当天日期 + 迭代号；② `versionCode` 在上一版基础上 +1。`versionCode` **不可回退**。
+- ⚠️ **序列重置说明**：2026-09-02 及之前曾用 `versionCode = versionName` 的绑定写法，`versionCode` 一度达到 `2026090204`（逼近 int 上限 `2147483647`）；2026-09-10 主动重置为小数值序列（当前 `50` = 当时仓库总提交数）。
+  - 副作用：设备上已装的旧版 `versionCode`（`2026090204`）大于新版，会**拒绝降级覆盖安装**。首次安装重置版前必须先 `adb uninstall com.example.shuati`（会清除本地题库与刷题记录，必要时先备份导出）。
+  - 查已装版本：`adb shell dumpsys package com.example.shuati | findstr versionCode`
 
 > **设计体系「柔光书桌」**（详见 `.impeccable.md` / `outputs/shuati-design-system.md`）：
 > 主色陶土橙 `#C8551E`、次色柔紫 `#6F5FA8`、薄荷 `#3C8A75`；语义色锁定：正确 `#2E8B62` / 警告 `#A96C10` / 错误 `#C2403A` / 信息 `#3D74B8`；渐变仅限 Hero/进度/空状态/主 CTA；动效 120/200/320ms 减速、禁回弹；答错文案「再看一眼」。已移除 `AuroraBackground.kt`/`Glass.kt`。
@@ -248,7 +252,7 @@ adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 | `ExcelRoundTripTest` | 2 | Excel 多选项动态列 + AI 解析往返 + 模板对齐 |
 | `QuestionFileImporterTest` | 13 | xlsx/xls/csv 三格式字段与题型推断一致性、CSV 的 GBK/UTF-8 编码探测、引号内逗号与换行、难度列解析、多文件 ID 冲突合并、非法输入与无法识别表格的报错 |
 
-- 跑法：`:app:testDebugUnitTest --no-daemon`（不含 assemble，不触发 buildNumber 自增）
+- 跑法：`:app:testDebugUnitTest --no-daemon`（不含 assemble，不改动版本号）
 
 ## 编译警告
 
