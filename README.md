@@ -8,21 +8,21 @@
 
 | 类别 | 技术 |
 |---|---|
-| 语言 | Kotlin 2.3.21（JVM 17） |
-| UI | Jetpack Compose + Material 3（BOM 2026.06.01），「柔光书桌」设计体系 |
+| 语言 | Kotlin 2.4.10（产物字节码固定 Java 17） |
+| UI | Jetpack Compose + Material 3（BOM 2026.08.00），「柔光书桌」设计体系 |
 | 架构 | 单 Activity + Compose Navigation（navigation-compose 2.9.8） |
-| 存储 | DataStore Preferences（以 JSON 字符串持久化） |
-| 序列化 | kotlinx-serialization 1.7.3 |
-| Excel | Apache POI 5.3.0（导入解析 / 导出生成） |
-| 网络 | Retrofit 2.11.0 + OkHttp 4.12.0（AI 大模型 / 搜索引擎，OpenAI 兼容） |
+| 存储 | DataStore Preferences 1.2.1（以 JSON 字符串持久化） |
+| 序列化 | kotlinx-serialization 1.11.0 |
+| Excel | 自研轻量实现 `logic/LightXlsx.kt`（xlsx = ZIP + XML，零依赖）；仅支持 `.xlsx` |
+| 网络 | Retrofit 3.0.0 + OkHttp 5.5.0（AI 大模型 / 搜索引擎，OpenAI 兼容） |
 | 加密 | androidx.security-crypto（AI 配置本地加密存 EncryptedSharedPreferences） |
-| 构建 | **AGP 9.2.0 + Gradle 9.5.0**（运行 JDK 用 Android Studio 自带 **JBR 25**，产物字节码固定 Java 17） |
+| 构建 | **AGP 9.3.0 + Gradle 9.7.1**（运行 JDK 用 Android Studio 自带 **JBR 25**，产物字节码固定 Java 17） |
 | SDK | minSdk 34 / **targetSdk 36** / **compileSdk 37** |
 
 > **版本组合说明**：
-> - `compileSdk 37` 要求 **AGP ≥ 9.1.1**（官方对照表），故采用 AGP 9.2.0；AGP 9.2 要求 **Gradle ≥ 9.4.1**，JDK 最低 **17**。
+> - `compileSdk 37` 要求 **AGP ≥ 9.1.1**（官方对照表），故采用 AGP 9.3.0 + Gradle 9.7.1；JDK 最低 **17**。升级 AGP / Gradle 时二者需同步查官方版本对照表。
 > - `targetSdk` 保持 **36**（与 compileSdk 解耦，避免新平台行为变更影响运行时）。
-> - AGP 9.0+ **已内置 Kotlin Android 支持**，无需 `org.jetbrains.kotlin.android` 插件（已移除）；`kotlin-compose` / `kotlin-serialization` 插件保留。
+> - AGP 9.0+ **已内置 Kotlin Android 支持**，`app` 模块无需 `org.jetbrains.kotlin.android` 插件；根目录仅保留该插件的版本声明（Kotlin 2.4.10）用于对齐。
 > - **新 DSL 已就绪**：本项目零 legacy Variant API（无 `applicationVariants` / `variantFilter` / `registerJavaGeneratingTask` 等），已实测 `android.newDsl=true` 编译通过且无弃用警告，故**不声明**该 opt-out flag（它在 AGP 10.0 会被彻底移除）。
 > - 未启用 multidex：minSdk 34 ≥ 21，原生多 dex，无需 `androidx.multidex`。
 
@@ -30,9 +30,10 @@
 - `versionName`：展示用版本号 = 年月日 + 两位迭代版号（`YYYYMMDDII`，10 位纯数字；当天第一版 `01`，第二版 `02`……），如 `2026091001` 表示 2026-09-10 第 1 次迭代。「我的」页仅显示 `v$versionName`。
 - `versionCode`：系统用的递增整数，每次发版 **+1**，与 `versionName` 无关。
 - ⚠️ **发版清单（两处都要改）**：① `versionName` 按当天日期 + 迭代号；② `versionCode` 在上一版基础上 +1。`versionCode` **不可回退**。
-- ⚠️ **序列重置说明**：2026-09-02 及之前曾用 `versionCode = versionName` 的绑定写法，`versionCode` 一度达到 `2026090204`（逼近 int 上限 `2147483647`）；2026-09-10 主动重置为小数值序列（当前 `50` = 当时仓库总提交数）。
-  - 副作用：设备上已装的旧版 `versionCode`（`2026090204`）大于新版，会**拒绝降级覆盖安装**。首次安装重置版前必须先 `adb uninstall com.example.shuati`（会清除本地题库与刷题记录，必要时先备份导出）。
-  - 查已装版本：`adb shell dumpsys package com.example.shuati | findstr versionCode`
+- ⚠️ **序列重置说明**：2026-09-02 及之前曾用 `versionCode = versionName` 的绑定写法，`versionCode` 一度达到 `2026090204`（逼近 int 上限 `2147483647`）；2026-09-10 主动重置为小数值序列（当前 `50` = 当时仓库总提交数）。**该重置版已装机**。
+  - 因重置值小于设备上当时的 `versionCode`（实测为 `104`），首次安装采用 `adb uninstall` 全新安装（本地数据已清空）。
+  - **下次发版取 `51` 即可正常覆盖安装，无需再卸载。**
+  - 查已装版本：`adb shell dumpsys package com.example.shuati | findstr versionCode`（装机版本以实测为准，勿凭记忆）
 
 > **设计体系「柔光书桌」**（详见 `.impeccable.md` / `outputs/shuati-design-system.md`）：
 > 主色陶土橙 `#C8551E`、次色柔紫 `#6F5FA8`、薄荷 `#3C8A75`；语义色锁定：正确 `#2E8B62` / 警告 `#A96C10` / 错误 `#C2403A` / 信息 `#3D74B8`；渐变仅限 Hero/进度/空状态/主 CTA；动效 120/200/320ms 减速、禁回弹；答错文案「再看一眼」。已移除 `AuroraBackground.kt`/`Glass.kt`。
@@ -66,7 +67,6 @@
 ### 题库 Tab（LibraryTabScreen / LibraryScreen）
 - 题库 / 题目总数统计；快捷入口：题库管理、导入题库、查重检测、全部题库
 - **我的题库**：卡片显示「错题 N / 收藏 N」徽章、掌握进度条、重复题徽章；操作含刷题、浏览、只练错题、批量刷、导出 Excel、清除进度、单库查重、编辑、删除
-- 「清理测试数据」按钮（仅当存在 `sample_` 题库时显示）
 
 ### 学习 Tab（StudyTabScreen）
 - **智能推荐**：一键进入推荐页；错题按遗忘曲线加权、已掌握降权、每题库软上限保证多样性
@@ -102,8 +102,9 @@
 - **疑似错题 Tab**：识别缺选项/答案异常，一键修正缺失/重复 ID
 
 ### 题库导入 / 导出 ⭐（含系统分享入口）
-- **支持格式**：`.xlsx`、`.xls`（Excel 97-2003）、`.csv`（UTF-8 / GBK 自动探测）
-  - 三种格式共用同一解析内核 `QuestionTableParser`，行为完全一致
+- **支持格式**：`.xlsx`、`.csv`（UTF-8 / GBK 自动探测）
+  - ⚠️ **已不支持 `.xls`**（Excel 97-2003）：随 Apache POI 一并移除，改用自研 `LightXlsx`（仅解析 xlsx = ZIP + XML）
+  - 两种格式共用同一解析内核 `QuestionTableParser`，行为一致
   - CSV 编码探测：先按 UTF-8，出现替换字符则回退 GBK（国内 Excel 另存 CSV 默认为 GBK）
 - **系统分享面板入口**：在其他 App（微信/QQ/文件管理器/网盘）点分享 → 选择「刷题」→ 自动进入导入页并解析
   - 支持 `ACTION_SEND`（单文件）与 `ACTION_SEND_MULTIPLE`（多文件合并为一个题库）
@@ -172,28 +173,23 @@
 
 ---
 
-## 示例（测试）题库
-
-> 开发期用于让所有页面开箱可测，**发布前需移除**。
-
-- `data/SampleBanks.kt`：`buildSampleBanks()` 返回 5 套（计算机基础/英语/生活常识/数学/综合知识 `sample_sci`），覆盖全 5 种题型共 30 题；`seedSampleData(repo)` 幂等播种，预置错题/收藏/历史/计划/掌握度
-- 单一注入点：`ShuatiApplication.onCreate()` → `seedSampleData`（仅当无 `sample_` 题库时播种）；所有 id 带 `sample_` 前缀
-- **移除**：A 代码层（删 `SampleBanks.kt` + `ShuatiApplication.kt:17` 调用与 import）；B 数据层用 `AppRepository.removeSampleData()`（按 `sample_` 前缀清理题库/错题/收藏/计划/历史/进度/正确率/掌握度/错答，无残留），`LibraryScreen` 顶栏「清理测试数据」按钮可直接触发
-
----
-
 ## 数据与核心逻辑
 
 ```
 app/src/main/java/com/example/shuati/
-├── MainActivity.kt / ShuatiApplication.kt   # 入口与全局单例（含 sample 播种）
+├── MainActivity.kt / ShuatiApplication.kt   # 入口与全局单例（启动预热缓存 + 建通知渠道）
 ├── model/QuizModels.kt                      # 数据模型 + AiExplanation + 配置类
-├── data/AppRepository.kt                    # 数据仓库：DataStore+JSON（题库/错收/进度/历史/计划/备份/查重/示例清理）
-├── data/AiConfigStore.kt                   # AI 多供应商配置（加密存储 + 迁移）
-├── logic/Scoring.kt                        # 判分、相似度 v3、查重、疑似错题
-├── logic/ExcelParser.kt / ExcelWriter.kt   # Excel 导入 / 导出（动态列 + AI解析列）
-├── logic/AiExplainService.kt               # AI 流式解析（SSE）、搜索编排、prompt caching
-├── logic/Recommend.kt                      # 智能推荐算法
+├── data/AppRepository.kt                    # 数据仓库：DataStore+JSON（题库/错收/进度/历史/计划/备份/查重）
+├── data/AiConfigStore.kt                    # AI 多供应商配置（加密存储 + 迁移）
+├── logic/Scoring.kt                         # 判分、相似度 v3、查重、疑似错题
+├── logic/QuestionTableParser.kt             # 表格解析内核（表头模式 + 固定列兼容）
+├── logic/LightXlsx.kt                       # 轻量 xlsx 读写（ZIP+XML，零依赖，替代 POI）
+├── logic/ExcelParser.kt / ExcelWriter.kt    # Excel 导入 / 导出（动态列 + AI解析列）
+├── logic/QuestionFileImporter.kt / CsvParser.kt  # 文件导入编排 / CSV 解析
+├── logic/AiExplainService.kt                # AI 流式解析（SSE）、搜索编排、prompt caching
+├── logic/Recommend.kt                       # 智能推荐算法
+├── notification/ReminderScheduler.kt        # 每日提醒调度（AlarmManager）
+├── notification/ReminderReceiver.kt         # 每日提醒广播（含 BOOT_COMPLETED 恢复）
 └── ui/
     ├── AppNavHost.kt / Routes.kt           # 导航图 + 底部导航 + 返回键处理
     ├── theme/                              # Material3 主题
@@ -212,12 +208,12 @@ app/src/main/java/com/example/shuati/
 
 > **环境要点（Windows 本机）**
 > - **JDK 推荐用 Android Studio 自带的 JBR 25**（`C:/Program Files/Android/Android Studio/jbr`），零配置、已实测构建成功。
->   - 官方兼容：Gradle 9.5 支持运行 JDK **17~26**；Java 25 需 Gradle ≥ 9.1.0（我们是 9.5.0，满足）。AGP 9.2 最低 JDK 17。
->   - ⚠️ 历史坑已失效：旧笔记「勿用 JBR 25」是 **Gradle 8.11 时代**的限制（8.11 仅支持到 Java 23）。**Gradle 9.5 下 JBR 25 可用，不必再另装 JDK 17。**
+>   - 官方兼容：Gradle 9.7.1 支持运行 JDK **17~26**；Java 25 需 Gradle ≥ 9.1.0（满足）。AGP 9.3 最低 JDK 17。
+>   - ⚠️ 历史坑已失效：旧笔记「勿用 JBR 25」是 **Gradle 8.11 时代**的限制（8.11 仅支持到 Java 23）。**Gradle 9.7.1 下 JBR 25 可用，不必再另装 JDK 17。**
 >   - 产物不受影响：`compileOptions`/`kotlin.jvmTarget` 已固定 **Java 17**，运行 Gradle 的 JDK 版本与产物字节码版本无关。
 > - 需安装 **Android SDK Platform 37** 与 **build-tools 37.0.0**（本机已具备）。
 > - **切勿设置 `GRADLE_USER_HOME`**：Git Bash 下 JVM 会误解析成 `\c\Users\...` 触发 `*.lck 拒绝访问`。
-> - 国内镜像已配置（长期保留，无需还原）：`settings.gradle.kts` 依赖仓库用阿里云；wrapper `distributionUrl` 用**腾讯云**镜像（Gradle 9.5.0 已验证可下载）。
+> - 国内镜像已配置（长期保留，无需还原）：`settings.gradle.kts` 依赖仓库用阿里云；wrapper `distributionUrl` 用**腾讯云**镜像（Gradle 9.7.1 已验证可下载）。
 >   - ⚠️ 中科大镜像 `mirrors.ustc.edu.cn/gradle/` 会 HEAD 假 200、实际下载 404；阿里云 macports 路径 403。**只用腾讯云或华为云**。
 > - 偶发 `*.zip.lck 拒绝访问` / `native-platform.dll 加载失败`：删 `~/.gradle/wrapper/dists/**/*.lck` 孤儿锁 + 清 `~/.gradle/native`、`~/.gradle/daemon`，或 `--stop --no-daemon` 复跑。
 
@@ -229,11 +225,13 @@ cd D:/Android/shuati
 ./gradlew.bat assembleDebug --no-daemon
 # 产物 app/build/outputs/apk/debug/app-debug.apk
 
-# 跑单测（不触发 versionCode 自增）
+# 跑单测（不含 assemble，不改动版本号）
 ./gradlew.bat :app:testDebugUnitTest
 
-# 装真机（设备 c733003）
-adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
+# 装真机（release 已自动签名，可直装）
+adb install -r app/build/outputs/apk/release/app-release.apk
+# 查看设备已装版本，确认能否覆盖安装（versionCode 不可回退）
+adb shell dumpsys package com.example.shuati | findstr versionCode
 ```
 
 环境要求：Android Studio Panda 3 (2025.3.3 Patch 1)+（匹配 AGP 9.x，自带 JBR 25 即可）、Android SDK Platform 37、设备 API 34+。
@@ -244,21 +242,24 @@ adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 测试
 
-- `app/src/test`（JVM 单测，JUnit4），共 **27 例全绿**：
+- `app/src/test`（JVM 单测，JUnit4），共 **29 例全绿**：
 
 | 测试类 | 用例数 | 覆盖范围 |
 |---|---|---|
 | `AiExplainServiceTest` | 12 | `modelHasBuiltinSearch` / `providerSupportsPromptCache` allowlist、`buildPrompt` 注入、SSE 累积解析、`bochaResultsToSearch` 截断 |
+| `QuestionFileImporterTest` | 11 | xlsx/csv 两格式字段与题型推断一致性、CSV 的 GBK/UTF-8 编码探测、引号内逗号与换行、难度列解析、多文件 ID 冲突合并、非法输入与无法识别表格的报错 |
+| `TemplateNoteRowTest` | 4 | 模板说明行机制的 4 个回归场景（保留说明行 / 删除后写题 / ID 含标记字样 / 题干含标记字样） |
 | `ExcelRoundTripTest` | 2 | Excel 多选项动态列 + AI 解析往返 + 模板对齐 |
-| `QuestionFileImporterTest` | 13 | xlsx/xls/csv 三格式字段与题型推断一致性、CSV 的 GBK/UTF-8 编码探测、引号内逗号与换行、难度列解析、多文件 ID 冲突合并、非法输入与无法识别表格的报错 |
 
 - 跑法：`:app:testDebugUnitTest --no-daemon`（不含 assemble，不改动版本号）
 
 ## 编译警告
 
-全量编译仅剩 **1 条**（历史 16 条已清理）：
+全量编译仅剩 **2 条**，均为 `AiExplainService.kt` 的提示级警告：
 
-- `Opt-in requirement marker 'androidx.compose.material.ExperimentalMaterialApi' is unresolved` —— 来自 `material-icons-extended` 依赖库的 Kotlin 元数据，**项目源码零引用**，非弃用、无害、源码层不可修，可忽略。
+- `AiExplainService.kt:405 / :408 Unnecessary safe call on a non-null receiver of type 'ResponseBody'` —— 对已非空的 `ResponseBody` 用了多余的 `?.`，不影响行为，可清理。
+
+> 已清理（2026-09-10）：`Opt-in requirement marker 'androidx.compose.material.ExperimentalMaterialApi' is unresolved` —— 根因是 `build.gradle.kts` 的 `freeCompilerArgs` 里声明了对 `androidx.compose.material`（material 2）的 opt-in，但项目只依赖 `material-icons-extended`、不含该核心库，指向了不存在的注解；**已删除该行**，警告消失。
 
 > 已清理项（2026-08-30）：冗余 `!!` 与多余安全调用（Dedup/EditBank/Recommend/Wrongs/StudyPlan）、恒真条件（AppRepository settings 判空 / QuizScreen answerText / TabScreens versionCode 回退分支）、废弃图标（TrendingUp / HelpOutline → `Icons.AutoMirrored.*`）。
 >
@@ -270,7 +271,11 @@ adb -s c733003 install -r app/build/outputs/apk/debug/app-debug.apk
 
 | 版本 | 说明 |
 |---|---|
-| 2026083009 | 随机刷题系统（题型筛选/选项乱序/多空顺序无关）+ 示例题库扩至 30 题 + 一键清理测试数据 |
+| 2026090204 | 移除测试题库（`SampleBanks.kt` 及播种/清理入口）；每日提醒本地通知（AlarmManager + BroadcastReceiver，无后台进程）；版本号解耦为两处手动维护；清理垃圾文件与构建产物 |
+| 2026090203 | 修复：取消时间选择器后无法再次打开（`DisposableEffect` + `setOnDismissListener` 复位） |
+| 2026090202 | 修复：开启每日提醒闪退（`canScheduleExactAlarms` 兜底 + 运算符优先级 bug）、提醒时间行补图标 |
+| 2026090201 | 每日提醒设置项；版本号规则统一；使用帮助内容同步 |
+| 2026083009 | 随机刷题系统（题型筛选/选项乱序/多空顺序无关）+ 示例题库扩至 30 题 + 一键清理测试数据（后于 2026090204 移除） |
 | 2026083008 | Excel 模板对齐、题型中文化、动态选项列、AI 解析导出/导入回填 |
 | 2026083007 | 重生成携带上次解析开关（默认开）+ 真实 JVM 单测落地 |
 | 2026083006 | 第3项（重生成带上下文） + prompt caching 降本 |
