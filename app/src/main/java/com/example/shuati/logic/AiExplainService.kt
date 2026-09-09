@@ -402,9 +402,13 @@ object AiExplainService {
         val resp = call.execute()
         try {
             if (!resp.isSuccessful) {
+                // OkHttp 的 Kotlin API 将 body 声明为非空，但 204/304 等无内容响应实际仍可能返回 null，
+                // 保留安全调用并抑制"多余安全调用"告警，避免运行时 NPE
+                @Suppress("UNNECESSARY_SAFE_CALL")
                 val err = resp.body?.string()?.take(500) ?: "HTTP ${resp.code}"
                 throw IllegalStateException("模型返回错误（${resp.code}）：$err")
             }
+            @Suppress("UNNECESSARY_SAFE_CALL")
             val source = resp.body?.source()
                 ?: throw IllegalStateException("模型未返回内容（空响应）")
 
